@@ -114,8 +114,12 @@ def build_shell_commands(payload: SettingsPayload, selection: ApplySelection) ->
         cmds.append(put_global("task_stack_view_layout_style", recents_style_value))
 
     if selection.background_blur_supported:
-        blur_value = str(payload.background_blur_supported).strip().lower()
-        if blur_value not in ("true", "false"):
+        raw = str(payload.background_blur_supported).strip().lower()
+        if raw in ("enabled", "true", "1"):
+            blur_value = "true"
+        elif raw in ("disabled", "false", "0"):
+            blur_value = "false"
+        else:
             blur_value = "false"
         cmds.append(mqsas_setprop(f"persist.sys.background_blur_supported {blur_value}"))
     return cmds
@@ -135,6 +139,7 @@ class HyperTweakApp:
 
         self._build_ui()
         self._start_queue_poller()
+        self._run_bg("start ADB server", self._ensure_adb_server_running_bg)
 
     # -------------------------
     # UI
@@ -194,7 +199,7 @@ class HyperTweakApp:
 
         self.var_home_anim = tk.StringVar(value="Balanced")
         self.var_recents_style = tk.StringVar(value="Vertically")
-        self.var_background_blur_supported = tk.StringVar(value="false")
+        self.var_background_blur_supported = tk.StringVar(value="Disabled")
 
         # Which sections should be applied
         self.apply_device_level_list = tk.BooleanVar(value=True)
@@ -460,7 +465,7 @@ class HyperTweakApp:
 
     def _section_miui_home_animation(self, parent: ttk.Widget, row: int) -> int:
         lf, widgets = self._titled_section(
-            parent, "MIUI Home Animation", self.apply_miui_home_animation
+            parent, "Animation", self.apply_miui_home_animation
         )
         lf.grid(row=row, column=0, sticky="ew", pady=(0, 8))
 
@@ -476,7 +481,7 @@ class HyperTweakApp:
         return row + 1
 
     def _section_recents_style(self, parent: ttk.Widget, row: int) -> int:
-        lf, widgets = self._titled_section(parent, "Recents Style", self.apply_recents_style)
+        lf, widgets = self._titled_section(parent, "Arrange items in Recents", self.apply_recents_style)
         lf.grid(row=row, column=0, sticky="ew", pady=(0, 8))
 
         rec_cb = self._add_combo(
@@ -492,15 +497,15 @@ class HyperTweakApp:
 
     def _section_background_blur_supported(self, parent: ttk.Widget, row: int) -> int:
         lf, widgets = self._titled_section(
-            parent, "Background Blur Support", self.apply_background_blur_supported
+            parent, "Advanced Textures", self.apply_background_blur_supported
         )
         lf.grid(row=row, column=0, sticky="ew", pady=(0, 8))
 
         blur_cb = self._add_combo(
             lf,
-            "background_blur_supported",
+            "Advanced Textures",
             self.var_background_blur_supported,
-            values=["true", "false"],
+            values=["Enabled", "Disabled"],
             r=0,
         )
         self._register_widget(widgets, blur_cb, "readonly")
@@ -608,6 +613,7 @@ class HyperTweakApp:
             )
 
         # Start server; if it's already running, adb prints a benign message.
+        self._log_async("Initializing ADB server (adb start-server)...")
         proc = subprocess.run(
             [adb, "start-server"],
             capture_output=True,
@@ -619,6 +625,7 @@ class HyperTweakApp:
             out = (proc.stdout or "") + (proc.stderr or "")
             out = out.strip() or "unknown error"
             raise RuntimeError(f"Failed to start ADB server: {out}")
+        self._log_async("ADB server is running.", level="success")
 
     def reboot_device(self) -> None:
         if self._device is None:
@@ -749,11 +756,11 @@ class HyperTweakApp:
                         applied += 1
                 elif key == "background_blur_supported":
                     vlow = val.lower()
-                    if vlow in ("0", "false"):
-                        self.var_background_blur_supported.set("false")
+                    if vlow in ("1", "true", "enabled"):
+                        self.var_background_blur_supported.set("Enabled")
                         applied += 1
-                    elif vlow in ("1", "true"):
-                        self.var_background_blur_supported.set("true")
+                    elif vlow in ("0", "false", "disabled"):
+                        self.var_background_blur_supported.set("Disabled")
                         applied += 1
 
             self._log(f"Loaded {applied} value(s) from: {path}", level="success")
@@ -945,10 +952,10 @@ class HyperTweakApp:
                 self.var_recents_style.set(val)
         elif key == "background_blur_supported":
             vlow = val.lower()
-            if vlow in ("0", "false"):
-                self.var_background_blur_supported.set("false")
-            elif vlow in ("1", "true"):
-                self.var_background_blur_supported.set("true")
+            if vlow in ("1", "true", "enabled"):
+                self.var_background_blur_supported.set("Enabled")
+            elif vlow in ("0", "false", "disabled"):
+                self.var_background_blur_supported.set("Disabled")
 
     def _log_async(self, message: str, level: str = "info") -> None:
         kind = "log"
