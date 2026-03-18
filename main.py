@@ -1,128 +1,34 @@
+"""HyperTweak - Android device settings tweaker via ADB."""
+
 from __future__ import annotations
 
 import json
 import os
 import queue
 import re
-import shutil
-import subprocess
-import sys
 import threading
 import time
 import tkinter as tk
-from dataclasses import dataclass
 from tkinter import filedialog, ttk
 from typing import Any, Callable
 
 import ttkbootstrap as tb
 from ttkbootstrap.widgets.scrolled import ScrolledFrame
+
 try:
-    from ppadb.client import Client as AdbClient  # pure-python-adb
-except Exception:  # pragma: no cover
+    from ppadb.client import Client as AdbClient
+except Exception:
     AdbClient = None  # type: ignore[misc,assignment]
 
-
-@dataclass(frozen=True)
-class SettingsPayload:
-    v: int
-    c: int
-    g: int
-    cpulevel: int
-    gpulevel: int
-    advanced_visual_release: int
-    temp_limit_enabled: bool
-    temp_limit_bottom: int
-    temp_limit_ceiling: int
-    miui_home_animation: str
-    recents_style: str
-    background_blur_supported: str
-
-
-@dataclass(frozen=True)
-class ApplySelection:
-    device_level_list: bool
-    computility: bool
-    advanced_visual_release: bool
-    temp_limit: bool
-    miui_home_animation: bool
-    recents_style: bool
-    background_blur_supported: bool
-
-
-def build_shell_commands(payload: SettingsPayload, selection: ApplySelection) -> list[str]:
-    """
-    Placeholder mapping.
-
-    Replace the keys/values here to match your ROM/device expectation.
-    Default behavior uses:
-      settings put system <key> <value>
-    """
-    def put(key: str, value: Any) -> str:
-        return f"settings put system {key} {value}"
-
-    def put_global(key: str, value: Any) -> str:
-        return f"settings put global {key} {value}"
-
-    def mqsas_setprop(prop_and_value: str) -> str:
-        # Matches: service call miui.mqsas.IMQSNative 21 i32 1 s16 "setprop" i32 1 s16 "<prop> <value>" s16 "/storage/emulated/0/log.txt" i32 600
-        return (
-            'service call miui.mqsas.IMQSNative 21 '
-            'i32 1 s16 "setprop" i32 1 '
-            f's16 "{prop_and_value}" '
-            's16 "/storage/emulated/0/log.txt" i32 600'
-        )
-
-    # Device Level List is a single value containing v/c/g together.
-    # Format requested: v:n,c:n.g:n
-    device_level_list = f"v:{payload.v},c:{payload.c},g:{payload.g}"
-
-    recents_style_map = {
-        "Vertically": 0,
-        "Horizontally": 1,
-        "Stacked": 2,
-    }
-    recents_style_value = recents_style_map.get(str(payload.recents_style), payload.recents_style)
-
-    home_anim_map = {
-        "Relaxed": 0,
-        "Balanced": 1,
-        "Fast": 2,
-    }
-    home_anim_value = home_anim_map.get(str(payload.miui_home_animation), payload.miui_home_animation)
-
-    cmds: list[str] = []
-
-    if selection.device_level_list:
-        cmds.append(put("deviceLevelList", device_level_list))
-
-    if selection.computility:
-        cmds.append(mqsas_setprop(f"persist.sys.computility.cpulevel {payload.cpulevel}"))
-        cmds.append(mqsas_setprop(f"persist.sys.computility.gpulevel {payload.gpulevel}"))
-
-    if selection.advanced_visual_release:
-        cmds.append(mqsas_setprop(f"persist.sys.advanced_visual_release {payload.advanced_visual_release}"))
-
-    if selection.temp_limit:
-        cmds.append(f"rt_enable_templimit {1 if payload.temp_limit_enabled else 0}")
-        cmds.append(put("rt_templimit_bottom", payload.temp_limit_bottom))
-        cmds.append(put("rt_templimit_ceiling", payload.temp_limit_ceiling))
-
-    if selection.miui_home_animation:
-        cmds.append(put("miui_home_animation_rate", home_anim_value))
-
-    if selection.recents_style:
-        cmds.append(put_global("task_stack_view_layout_style", recents_style_value))
-
-    if selection.background_blur_supported:
-        raw = str(payload.background_blur_supported).strip().lower()
-        if raw in ("enabled", "true", "1"):
-            blur_value = "true"
-        elif raw in ("disabled", "false", "0"):
-            blur_value = "false"
-        else:
-            blur_value = "false"
-        cmds.append(mqsas_setprop(f"persist.sys.background_blur_supported {blur_value}"))
-    return cmds
+import adb
+from config import ApplySelection, SettingsPayload, build_shell_commands
+from ui import (
+    build_advanced_settings,
+    build_command_console,
+    build_current_device_settings,
+    build_quick_toggles,
+)
+from ui.shared import apply_current_kv
 
 
 class HyperTweakApp:
@@ -132,7 +38,7 @@ class HyperTweakApp:
         self.root.geometry("800x600")
         self.root.resizable(False, False)
 
-        self._ui_queue: "queue.Queue[tuple[str, str]]" = queue.Queue()
+        self._ui_queue: queue.Queue[tuple[str, str]] = queue.Queue()
         self._adb_client: Any | None = None
         self._device: Any | None = None
         self._device_name: str | None = None
@@ -141,9 +47,6 @@ class HyperTweakApp:
         self._start_queue_poller()
         self._run_bg("start ADB server", self._ensure_adb_server_running_bg)
 
-    # -------------------------
-    # UI
-    # -------------------------
     def _build_ui(self) -> None:
         self.root.columnconfigure(0, weight=5)
         self.root.columnconfigure(1, weight=1)
@@ -173,9 +76,6 @@ class HyperTweakApp:
         )
         self.lbl_adb_hint.grid(row=0, column=2, sticky="e")
 
-        # Scrollable modification area (left)
-        # Extra right padding creates a gutter so the always-visible scrollbar
-        # doesn't visually clash with section borders.
         self.scroller = ScrolledFrame(self.root, autohide=False, padding=(14, 8, 26, 10))
         self.scroller.grid(row=1, column=0, sticky="nsew")
 
@@ -183,62 +83,18 @@ class HyperTweakApp:
         page.columnconfigure(0, weight=1)
         page.rowconfigure(0, weight=1)
 
-        # Vars
-        self.var_v = tk.IntVar(value=1)
-        self.var_c = tk.IntVar(value=1)
-        self.var_g = tk.IntVar(value=1)
-
-        self.var_cpulevel = tk.IntVar(value=3)
-        self.var_gpulevel = tk.IntVar(value=3)
-
-        self.var_advanced_visual_release = tk.IntVar(value=1)
-
-        self.var_temp_enable = tk.BooleanVar(value=False)
-        self.var_temp_bottom = tk.StringVar(value="35")
-        self.var_temp_ceiling = tk.StringVar(value="45")
-
-        self.var_home_anim = tk.StringVar(value="Balanced")
-        self.var_recents_style = tk.StringVar(value="Vertically")
-        self.var_background_blur_supported = tk.StringVar(value="Disabled")
-
-        # Which sections should be applied
-        self.apply_device_level_list = tk.BooleanVar(value=True)
-        self.apply_computility = tk.BooleanVar(value=True)
-        self.apply_advanced_visual_release = tk.BooleanVar(value=True)
-        self.apply_temp_limit = tk.BooleanVar(value=False)
-        self.apply_miui_home_animation = tk.BooleanVar(value=True)
-        self.apply_recents_style = tk.BooleanVar(value=True)
-        self.apply_background_blur_supported = tk.BooleanVar(value=True)
-
-        # Current values (read from device)
-        self.cur_device_level_list = tk.StringVar(value="—")
-        self.cur_cpulevel = tk.StringVar(value="—")
-        self.cur_gpulevel = tk.StringVar(value="—")
-        self.cur_advanced_visual_release = tk.StringVar(value="—")
-        self.cur_window_animation_scale = tk.StringVar(value="—")
-        self.cur_transition_animation_scale = tk.StringVar(value="—")
-        self.cur_animator_duration_scale = tk.StringVar(value="—")
-        self.cur_temp_limit_enabled = tk.StringVar(value="—")
-        self.cur_temp_limit_bottom = tk.StringVar(value="—")
-        self.cur_temp_limit_ceiling = tk.StringVar(value="—")
-        self.cur_miui_home_animation_rate = tk.StringVar(value="—")
-        self.cur_recents_style = tk.StringVar(value="—")
-        self.cur_background_blur_supported = tk.StringVar(value="—")
-
-        # Validation
+        self._init_vars()
         self._vcmd_int = (self.root.register(self._validate_int_entry), "%P")
 
-        # Single-column layout inside scroll area
         content = ttk.Frame(page)
         content.grid(row=0, column=0, sticky="nsew")
         content.columnconfigure(0, weight=1)
 
         r = 0
-        r = self._section_current_values(content, r)
-        r = self._section_quick_toggles(content, r)
-        r = self._section_advanced_settings(content, r)
+        r = build_current_device_settings(content, self, r)
+        r = build_quick_toggles(content, self, r)
+        r = build_advanced_settings(content, self, r)
 
-        # Apply (fixed, bottom; spans both columns)
         footer = ttk.Frame(self.root, padding=(14, 6, 14, 8))
         footer.grid(row=2, column=0, columnspan=2, sticky="ew")
         footer.columnconfigure(0, weight=1)
@@ -264,7 +120,6 @@ class HyperTweakApp:
         )
         self.btn_reboot.grid(row=0, column=1, sticky="e", padx=(10, 0))
 
-        # Status / console area (right)
         right_wrap = ttk.Frame(self.root, padding=(10, 8, 14, 10), width=360)
         right_wrap.grid(row=1, column=1, sticky="nsew")
         self.root.rowconfigure(1, weight=1)
@@ -275,7 +130,6 @@ class HyperTweakApp:
         notebook.grid(row=0, column=0, sticky="nsew")
         right_wrap.columnconfigure(0, weight=1)
 
-        # Status Log tab
         log_tab = ttk.Frame(notebook)
         notebook.add(log_tab, text="Status Log")
         log_tab.rowconfigure(1, weight=1)
@@ -302,383 +156,54 @@ class HyperTweakApp:
         )
         self.txt_log.grid(row=1, column=0, sticky="nsew")
 
-        # Command Console tab
-        console_tab = ttk.Frame(notebook)
+        console_tab = build_command_console(notebook, self)
         notebook.add(console_tab, text="Command Console")
-        # row 0: command input (1/3 height), row 1: output (2/3 height)
-        console_tab.rowconfigure(0, weight=1)
-        console_tab.rowconfigure(1, weight=2)
-        console_tab.columnconfigure(0, weight=1)
-
-        # Command input area (top ~1/3)
-        cmd_area = ttk.Frame(console_tab)
-        cmd_area.grid(row=0, column=0, sticky="nsew", pady=(0, 6))
-        cmd_area.columnconfigure(0, weight=1)
-        cmd_area.rowconfigure(1, weight=1)
-
-        console_header = ttk.Frame(cmd_area)
-        console_header.grid(row=0, column=0, sticky="ew", pady=(0, 4))
-        console_header.columnconfigure(0, weight=1)
-
-        ttk.Label(console_header, text="ADB shell command:").grid(row=0, column=0, sticky="w")
-
-        cmd_row = ttk.Frame(cmd_area)
-        cmd_row.grid(row=1, column=0, sticky="ew")
-        cmd_row.columnconfigure(0, weight=1)
-
-        self.txt_custom_cmd = tk.Text(
-            cmd_row,
-            height=3,
-            wrap="word",
-            padx=6,
-            pady=4,
-            bg="#0e1116",
-            fg="#e7eaf0",
-            insertbackground="#e7eaf0",
-            relief="flat",
-        )
-        self.txt_custom_cmd.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
-        self.txt_custom_cmd.insert("1.0", "getprop ro.product.model")
-
-        self.btn_run_custom_cmd = ttk.Button(
-            cmd_row,
-            text="Run",
-            width=8,
-            command=self.run_custom_command,
-        )
-        self.btn_run_custom_cmd.grid(row=0, column=1, sticky="e")
-
-        # Output area (bottom ~2/3)
-        self.txt_console = tk.Text(
-            console_tab,
-            wrap="word",
-            padx=10,
-            pady=6,
-            bg="#0e1116",
-            fg="#e7eaf0",
-            insertbackground="#e7eaf0",
-            relief="flat",
-        )
-        self.txt_console.grid(row=1, column=0, sticky="nsew")
 
         self._log("Ready. Connect a device via USB debugging.")
         self._append_console("Console ready.\n")
 
-    def _section_frame(self, parent: ttk.Widget, title: str) -> ttk.Labelframe:
-        lf = ttk.Labelframe(parent, text=title, padding=(12, 10, 12, 10))
-        # col 1 is a flexible spacer; inputs live in col 2 (right-aligned)
-        lf.columnconfigure(1, weight=1)
-        return lf
+    def _init_vars(self) -> None:
+        self.var_v = tk.IntVar(value=1)
+        self.var_c = tk.IntVar(value=1)
+        self.var_g = tk.IntVar(value=1)
+        self.var_cpulevel = tk.IntVar(value=3)
+        self.var_gpulevel = tk.IntVar(value=3)
+        self.var_advanced_visual_release = tk.IntVar(value=1)
+        self.var_temp_enable = tk.BooleanVar(value=False)
+        self.var_temp_bottom = tk.StringVar(value="35")
+        self.var_temp_ceiling = tk.StringVar(value="45")
+        self.var_home_anim = tk.StringVar(value="Balanced")
+        self.var_recents_style = tk.StringVar(value="Vertically")
+        self.var_background_blur_supported = tk.StringVar(value="Disabled")
 
-    def _titled_section(
-        self,
-        parent: ttk.Widget,
-        title: str,
-        enabled_var: tk.BooleanVar,
-        after_toggle: Callable[[], None] | None = None,
-    ) -> tuple[ttk.Labelframe, list[tuple[ttk.Widget, str]]]:
-        lf = ttk.Labelframe(parent, padding=(12, 10, 12, 10))
-        # col 1 is a flexible spacer; inputs live in col 2 (right-aligned)
-        lf.grid_columnconfigure(1, weight=1)
+        self.apply_device_level_list = tk.BooleanVar(value=True)
+        self.apply_computility = tk.BooleanVar(value=True)
+        self.apply_advanced_visual_release = tk.BooleanVar(value=True)
+        self.apply_temp_limit = tk.BooleanVar(value=False)
+        self.apply_miui_home_animation = tk.BooleanVar(value=True)
+        self.apply_recents_style = tk.BooleanVar(value=True)
+        self.apply_background_blur_supported = tk.BooleanVar(value=True)
 
-        # Put checkbox+title into the Labelframe border label area (removes the notch/cut-in).
-        label = ttk.Frame(lf)
-        chk = ttk.Checkbutton(label, variable=enabled_var, text="")
-        chk.pack(side="left", padx=(0, 6))
-        ttk.Label(label, text=title, font=("Segoe UI", 10, "bold")).pack(side="left")
-        lf.configure(labelwidget=label)
-
-        widgets: list[tuple[ttk.Widget, str]] = []
-
-        def on_toggle() -> None:
-            self._set_section_enabled(widgets, bool(enabled_var.get()))
-            if after_toggle is not None:
-                after_toggle()
-
-        chk.configure(command=on_toggle)
-        return lf, widgets
-
-    def _register_widget(
-        self, widgets: list[tuple[ttk.Widget, str]], widget: ttk.Widget, enabled_state: str
-    ) -> None:
-        widgets.append((widget, enabled_state))
-
-    def _set_section_enabled(self, widgets: list[tuple[ttk.Widget, str]], enabled: bool) -> None:
-        for w, enabled_state in widgets:
-            try:
-                w.configure(state=(enabled_state if enabled else "disabled"))
-            except tk.TclError:
-                pass
-
-    def _section_current_values(self, parent: ttk.Widget, row: int) -> int:
-        lf = self._section_frame(parent, "Current Device Settings")
-        lf.grid(row=row, column=0, sticky="ew", pady=(0, 8))
-        lf.columnconfigure(1, weight=1)
-
-        btns = ttk.Frame(lf)
-        btns.grid(row=0, column=0, sticky="w", columnspan=2, pady=(0, 8))
-
-        ttk.Button(btns, text="Refresh from Device", command=self.refresh_current_settings).grid(
-            row=0, column=0, sticky="w"
-        )
-        ttk.Button(btns, text="Save", command=self.save_current_settings).grid(
-            row=0, column=1, sticky="w", padx=(10, 0)
-        )
-        ttk.Button(btns, text="Load", command=self.load_current_settings).grid(
-            row=0, column=2, sticky="w", padx=(10, 0)
-        )
-
-        # Scrollable values list (keeps buttons fixed)
-        values = ScrolledFrame(lf, autohide=False, height=170, padding=(0, 0, 0, 0))
-        values.grid(row=1, column=0, columnspan=2, sticky="ew")
-        values.columnconfigure(0, weight=1)
-
-        rows = ttk.Frame(values)
-        rows.grid(row=0, column=0, sticky="ew")
-        rows.columnconfigure(1, weight=1)
-
-        def add(r: int, label: str, var: tk.StringVar) -> None:
-            ttk.Label(rows, text=label).grid(row=r, column=0, sticky="w", padx=(0, 10))
-            ttk.Label(rows, textvariable=var, foreground="#c9d1d9").grid(row=r, column=1, sticky="w")
-
-        r = 0
-        # Quick Toggles
-        add(r, "window_animation_scale", self.cur_window_animation_scale); r += 1
-        add(r, "transition_animation_scale", self.cur_transition_animation_scale); r += 1
-        add(r, "animator_duration_scale", self.cur_animator_duration_scale); r += 1
-        add(r, "task_stack_view_layout_style", self.cur_recents_style); r += 1
-
-        # Advanced Settings
-        add(r, "deviceLevelList", self.cur_device_level_list); r += 1
-        add(r, "cpulevel", self.cur_cpulevel); r += 1
-        add(r, "gpulevel", self.cur_gpulevel); r += 1
-        add(r, "advanced_visual_release", self.cur_advanced_visual_release); r += 1
-        add(r, "background_blur_supported", self.cur_background_blur_supported); r += 1
-        add(r, "miui_home_animation_rate", self.cur_miui_home_animation_rate); r += 1
-        add(r, "rt_enable_templimit", self.cur_temp_limit_enabled); r += 1
-        add(r, "rt_templimit_bottom", self.cur_temp_limit_bottom); r += 1
-        add(r, "rt_templimit_ceiling", self.cur_temp_limit_ceiling); r += 1
-        # temp limit at the end, per UI order
-        
-        return row + 1
-
-    def _section_quick_toggles(self, parent: ttk.Widget, row: int) -> int:
-        lf = self._section_frame(parent, "Quick Toggles")
-        lf.grid(row=row, column=0, sticky="ew", pady=(0, 8))
-        lf.columnconfigure(0, weight=1)
-        # _section_frame reserves extra space in column 1; make our content span it.
-        lf.columnconfigure(1, weight=0)
-
-        # Remove animations
-        anim_box = ttk.Labelframe(lf, text="Remove animations", padding=(10, 8, 10, 10))
-        anim_box.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
-        anim_box.columnconfigure(0, weight=1)
-
-        self._animations_disabled = False
-        self.btn_toggle_animations = ttk.Button(
-            anim_box,
-            text="Disable animations",
-            style="warning.TButton",
-            command=self.toggle_animations,
-        )
-        self.btn_toggle_animations.grid(row=0, column=0, sticky="ew")
-
-        # Recents style quick buttons
-        rec_box = ttk.Labelframe(lf, text="Recents style", padding=(10, 8, 10, 10))
-        rec_box.grid(row=1, column=0, columnspan=2, sticky="ew")
-        for i in range(3):
-            rec_box.columnconfigure(i, weight=1)
-
-        self.btn_recents_vertical = ttk.Button(
-            rec_box, text="Vertically", command=lambda: self.set_recents_style("Vertically")
-        )
-        self.btn_recents_horizontal = ttk.Button(
-            rec_box, text="Horizontally", command=lambda: self.set_recents_style("Horizontally")
-        )
-        self.btn_recents_stacked = ttk.Button(
-            rec_box, text="Stacked", command=lambda: self.set_recents_style("Stacked")
-        )
-
-        self.btn_recents_vertical.grid(row=0, column=0, sticky="ew", padx=(0, 6))
-        self.btn_recents_horizontal.grid(row=0, column=1, sticky="ew", padx=(0, 6))
-        self.btn_recents_stacked.grid(row=0, column=2, sticky="ew")
-
-        return row + 1
-
-    def _section_advanced_settings(self, parent: ttk.Widget, row: int) -> int:
-        outer = self._section_frame(parent, "Advanced Settings")
-        outer.grid(row=row, column=0, sticky="ew", pady=(0, 8))
-        outer.columnconfigure(0, weight=1)
-        outer.columnconfigure(1, weight=0)
-
-        inner = ttk.Frame(outer)
-        inner.grid(row=0, column=0, columnspan=2, sticky="ew")
-        inner.columnconfigure(0, weight=1)
-
-        r = 0
-        r = self._section_device_levels(inner, r)
-        r = self._section_computility(inner, r)
-        r = self._section_advanced_visual_release(inner, r)
-        r = self._section_background_blur_supported(inner, r)
-        r = self._section_miui_home_animation(inner, r)
-        r = self._section_temp_limit(inner, r)
-        return row + 1
-
-    def _section_device_levels(self, parent: ttk.Widget, row: int) -> int:
-        lf, widgets = self._titled_section(parent, "Device Level List", self.apply_device_level_list)
-        lf.grid(row=row, column=0, sticky="ew", pady=(0, 8))
-
-        v_cb = self._add_combo(lf, "v", self.var_v, values=[1, 2, 3], r=0)
-        c_cb = self._add_combo(lf, "c", self.var_c, values=[1, 2, 3], r=1)
-        g_cb = self._add_combo(lf, "g", self.var_g, values=[1, 2, 3], r=2)
-        self._register_widget(widgets, v_cb, "readonly")
-        self._register_widget(widgets, c_cb, "readonly")
-        self._register_widget(widgets, g_cb, "readonly")
-        self._set_section_enabled(widgets, bool(self.apply_device_level_list.get()))
-        return row + 1
-
-    def _section_computility(self, parent: ttk.Widget, row: int) -> int:
-        lf, widgets = self._titled_section(parent, "Computility", self.apply_computility)
-        lf.grid(row=row, column=0, sticky="ew", pady=(0, 8))
-
-        cpu_cb = self._add_combo(lf, "cpulevel", self.var_cpulevel, values=list(range(1, 7)), r=0)
-        gpu_cb = self._add_combo(lf, "gpulevel", self.var_gpulevel, values=list(range(1, 7)), r=1)
-        self._register_widget(widgets, cpu_cb, "readonly")
-        self._register_widget(widgets, gpu_cb, "readonly")
-        self._set_section_enabled(widgets, bool(self.apply_computility.get()))
-        return row + 1
-
-    def _section_advanced_visual_release(self, parent: ttk.Widget, row: int) -> int:
-        lf, widgets = self._titled_section(
-            parent, "Advanced Visual Release", self.apply_advanced_visual_release
-        )
-        lf.grid(row=row, column=0, sticky="ew", pady=(0, 8))
-
-        avr_cb = self._add_combo(
-            lf,
-            "Advanced Visual Release",
-            self.var_advanced_visual_release,
-            values=[1, 2, 3],
-            r=0,
-        )
-        self._register_widget(widgets, avr_cb, "readonly")
-        self._set_section_enabled(widgets, bool(self.apply_advanced_visual_release.get()))
-        return row + 1
-
-    def _section_temp_limit(self, parent: ttk.Widget, row: int) -> int:
-        lf, widgets = self._titled_section(
-            parent, "Temp Limit", self.apply_temp_limit, after_toggle=self._sync_temp_enabled_state
-        )
-        lf.grid(row=row, column=0, sticky="ew", pady=(0, 8))
-
-        chk = ttk.Checkbutton(
-            lf,
-            text="Enable",
-            variable=self.var_temp_enable,
-            command=self._sync_temp_enabled_state,
-        )
-        chk.grid(row=0, column=0, sticky="w", columnspan=2, pady=(0, 8))
-        self._register_widget(widgets, chk, "normal")
-
-        ttk.Label(lf, text="Bottom").grid(row=1, column=0, sticky="w", padx=(0, 10))
-        self.ent_temp_bottom = ttk.Entry(
-            lf,
-            textvariable=self.var_temp_bottom,
-            validate="key",
-            validatecommand=self._vcmd_int,
-            width=18,
-            bootstyle="secondary",
-        )
-        self.ent_temp_bottom.grid(row=1, column=2, sticky="e")
-        self._register_widget(widgets, self.ent_temp_bottom, "normal")
-
-        ttk.Label(lf, text="Ceiling").grid(row=2, column=0, sticky="w", pady=(6, 0), padx=(0, 10))
-        self.ent_temp_ceiling = ttk.Entry(
-            lf,
-            textvariable=self.var_temp_ceiling,
-            validate="key",
-            validatecommand=self._vcmd_int,
-            width=18,
-            bootstyle="secondary",
-        )
-        self.ent_temp_ceiling.grid(row=2, column=2, sticky="e", pady=(6, 0))
-        self._register_widget(widgets, self.ent_temp_ceiling, "normal")
-        self._set_section_enabled(widgets, bool(self.apply_temp_limit.get()))
-        self._sync_temp_enabled_state()
-        return row + 1
-
-    def _section_miui_home_animation(self, parent: ttk.Widget, row: int) -> int:
-        lf, widgets = self._titled_section(
-            parent, "Animation", self.apply_miui_home_animation
-        )
-        lf.grid(row=row, column=0, sticky="ew", pady=(0, 8))
-
-        anim_cb = self._add_combo(
-            lf,
-            "Animation",
-            self.var_home_anim,
-            values=["Relaxed", "Balanced", "Fast"],
-            r=0,
-        )
-        self._register_widget(widgets, anim_cb, "readonly")
-        self._set_section_enabled(widgets, bool(self.apply_miui_home_animation.get()))
-        return row + 1
-
-    def _section_recents_style(self, parent: ttk.Widget, row: int) -> int:
-        lf, widgets = self._titled_section(parent, "Arrange items in Recents", self.apply_recents_style)
-        lf.grid(row=row, column=0, sticky="ew", pady=(0, 8))
-
-        rec_cb = self._add_combo(
-            lf,
-            "Recents",
-            self.var_recents_style,
-            values=["Vertically", "Horizontally", "Stacked"],
-            r=0,
-        )
-        self._register_widget(widgets, rec_cb, "readonly")
-        self._set_section_enabled(widgets, bool(self.apply_recents_style.get()))
-        return row + 1
-
-    def _section_background_blur_supported(self, parent: ttk.Widget, row: int) -> int:
-        lf, widgets = self._titled_section(
-            parent, "Advanced Textures", self.apply_background_blur_supported
-        )
-        lf.grid(row=row, column=0, sticky="ew", pady=(0, 8))
-
-        blur_cb = self._add_combo(
-            lf,
-            "Advanced Textures",
-            self.var_background_blur_supported,
-            values=["Enabled", "Disabled"],
-            r=0,
-        )
-        self._register_widget(widgets, blur_cb, "readonly")
-        self._set_section_enabled(widgets, bool(self.apply_background_blur_supported.get()))
-        return row + 1
-
-    def _add_combo(
-        self,
-        parent: ttk.Widget,
-        label: str,
-        var: tk.Variable,
-        values: list[Any],
-        r: int,
-    ) -> ttk.Combobox:
-        ttk.Label(parent, text=label).grid(
-            row=r, column=0, sticky="w", pady=(0 if r == 0 else 6, 0), padx=(0, 10)
-        )
-        cb = ttk.Combobox(parent, textvariable=var, values=values, state="readonly", width=18)
-        cb.configure(bootstyle="secondary")
-        cb.grid(row=r, column=2, sticky="e", pady=(0 if r == 0 else 6, 0))
-        return cb
+        self.cur_device_level_list = tk.StringVar(value="—")
+        self.cur_cpulevel = tk.StringVar(value="—")
+        self.cur_gpulevel = tk.StringVar(value="—")
+        self.cur_advanced_visual_release = tk.StringVar(value="—")
+        self.cur_window_animation_scale = tk.StringVar(value="—")
+        self.cur_transition_animation_scale = tk.StringVar(value="—")
+        self.cur_animator_duration_scale = tk.StringVar(value="—")
+        self.cur_temp_limit_enabled = tk.StringVar(value="—")
+        self.cur_temp_limit_bottom = tk.StringVar(value="—")
+        self.cur_temp_limit_ceiling = tk.StringVar(value="—")
+        self.cur_miui_home_animation_rate = tk.StringVar(value="—")
+        self.cur_recents_style = tk.StringVar(value="—")
+        self.cur_background_blur_supported = tk.StringVar(value="—")
 
     def _sync_temp_enabled_state(self) -> None:
-        # If the whole section is disabled, keep entries locked regardless of the inner toggle.
         if not bool(self.apply_temp_limit.get()):
             try:
                 self.ent_temp_bottom.configure(state="disabled")
                 self.ent_temp_ceiling.configure(state="disabled")
-            except tk.TclError:
+            except (AttributeError, tk.TclError):
                 pass
             return
         state = "normal" if self.var_temp_enable.get() else "disabled"
@@ -700,11 +225,9 @@ class HyperTweakApp:
         try:
             devices = client.devices()
         except OSError as e:
-            # Common on Windows when the ADB server isn't running: WinError 10061
             if getattr(e, "winerror", None) == 10061:
                 self._log_async("ADB server not running. Attempting to start it...")
                 self._ensure_adb_server_running_bg()
-                # Retry once
                 devices = client.devices()
             else:
                 raise
@@ -714,8 +237,6 @@ class HyperTweakApp:
 
         device = devices[0]
         serial = getattr(device, "serial", "<unknown>")
-
-        # Quick sanity check
         try:
             out = device.shell("getprop ro.product.model").strip()
         except Exception:
@@ -723,7 +244,6 @@ class HyperTweakApp:
 
         self._adb_client = client
         self._device = device
-
         name = f"{serial}" + (f" ({out})" if out else "")
         self._device_name = name
         self._ui_queue.put(("device", name))
@@ -731,44 +251,8 @@ class HyperTweakApp:
         self._ui_queue.put(("auto_refresh", "1"))
 
     def _ensure_adb_server_running_bg(self) -> None:
-        adb: str | None = None
-
-        # Prefer a bundled platform-tools/adb.exe next to the executable (PyInstaller onedir).
-        if getattr(sys, "frozen", False):
-            exe_dir = os.path.dirname(sys.executable)
-            candidate = os.path.join(exe_dir, "platform-tools", "adb.exe")
-            if os.path.exists(candidate):
-                adb = candidate
-
-        # When running from source, allow a local platform-tools folder too.
-        if not adb:
-            candidate = os.path.join(os.path.dirname(__file__), "platform-tools", "adb.exe")
-            if os.path.exists(candidate):
-                adb = candidate
-
-        # Finally, fall back to PATH.
-        if not adb:
-            adb = shutil.which("adb")
-
-        if not adb:
-            raise RuntimeError(
-                "ADB not found. Put platform-tools next to the app (platform-tools/adb.exe) "
-                "or install Android platform-tools and ensure `adb` is in PATH."
-            )
-
-        # Start server; if it's already running, adb prints a benign message.
         self._log_async("Initializing ADB server (adb start-server)...")
-        proc = subprocess.run(
-            [adb, "start-server"],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            shell=False,
-        )
-        if proc.returncode != 0:
-            out = (proc.stdout or "") + (proc.stderr or "")
-            out = out.strip() or "unknown error"
-            raise RuntimeError(f"Failed to start ADB server: {out}")
+        adb.start_adb_server()
         self._log_async("ADB server is running.", level="success")
 
     def reboot_device(self) -> None:
@@ -808,11 +292,10 @@ class HyperTweakApp:
 
     def save_current_settings(self) -> None:
         snapshot = self._current_snapshot()
-
         default_name = "hypertweak_settings.json"
         if self._device_name:
-            safe = re.sub(r'[<>:"/\\\\|?*\\n\\r\\t]', "_", self._device_name).strip()
-            safe = re.sub(r"\\s+", " ", safe)
+            safe = re.sub(r'[<>:"/\\|?*\n\r\t]', "_", self._device_name).strip()
+            safe = re.sub(r"\s+", " ", safe)
             if safe:
                 default_name = f"{safe}.json"
 
@@ -830,10 +313,8 @@ class HyperTweakApp:
             "saved_at_unix": int(time.time()),
             "values": snapshot,
         }
-
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
-
         self._log(f"Saved current values to: {path}", level="success")
 
     def load_current_settings(self) -> None:
@@ -856,7 +337,6 @@ class HyperTweakApp:
             for k, v in values.items():
                 if v is None:
                     continue
-
                 key = str(k)
                 val = str(v).strip()
 
@@ -916,7 +396,6 @@ class HyperTweakApp:
 
     def _refresh_current_settings_bg(self) -> None:
         assert self._device is not None
-
         queries: list[tuple[str, str]] = [
             ("window_animation_scale", "settings get global window_animation_scale"),
             ("transition_animation_scale", "settings get global transition_animation_scale"),
@@ -932,14 +411,12 @@ class HyperTweakApp:
             ("miui_home_animation_rate", "settings get system miui_home_animation_rate"),
             ("background_blur_supported", "getprop persist.sys.background_blur_supported"),
         ]
-
         self._log_async("Refreshing current settings from device...")
         for key, cmd in queries:
             val = self._device.shell(cmd).strip()
             if not val:
                 val = "—"
             self._ui_queue.put(("current", f"{key}={val}"))
-
         self._log_async("Refresh complete.", level="success")
 
     # -------------------------
@@ -949,7 +426,6 @@ class HyperTweakApp:
         if self._device is None:
             self._log("No device connected. Click 'Connect Device' first.", level="error")
             return
-
         payload = self._gather_payload()
         selection = ApplySelection(
             device_level_list=bool(self.apply_device_level_list.get()),
@@ -982,26 +458,25 @@ class HyperTweakApp:
 
     def _apply_settings_bg(self, payload: SettingsPayload, selection: ApplySelection) -> None:
         assert self._device is not None
-
         cmds = build_shell_commands(payload, selection)
         if not cmds:
             self._log_async("No sections selected; nothing to apply.", level="error")
             return
         self._log_async(f"Applying {len(cmds)} command(s)...")
-
         started = time.time()
         for i, cmd in enumerate(cmds, start=1):
             self._log_async(f"[{i}/{len(cmds)}] {cmd}")
             self._device.shell(cmd)
-
         elapsed_ms = int((time.time() - started) * 1000)
         self._log_async(f"Done in {elapsed_ms} ms.", level="success")
 
+    # -------------------------
+    # Command Console
+    # -------------------------
     def run_custom_command(self) -> None:
         cmd = self.txt_custom_cmd.get("1.0", "end-1c").strip()
         if not cmd:
             return
-        # clear previous output before running a new command
         self._ui_queue.put(("console_clear", ""))
         if self._device is None:
             self._append_console("[!] No device connected. Click 'Connect Device' first.\n")
@@ -1009,7 +484,6 @@ class HyperTweakApp:
         self._run_bg("custom_cmd", lambda: self._run_custom_command_bg(cmd))
 
     def _append_console(self, text: str) -> None:
-        # marshal console writes back to the UI thread
         self._ui_queue.put(("console", text))
 
     def _append_console_ui(self, text: str) -> None:
@@ -1032,56 +506,43 @@ class HyperTweakApp:
                 self._append_console(f"ERROR: {e}\n\n")
                 continue
             out = (out or "").rstrip()
-            if out:
-                self._append_console(f"{out}\n\n")
-            else:
-                self._append_console("\n")
+            self._append_console(f"{out}\n\n" if out else "\n")
 
     def _split_shell_commands(self, text: str) -> list[str]:
-        """
-        Split a command string on ';' while respecting quoted strings.
-        Allows entering multiple commands in one Run: cmd1; cmd2; cmd3
-        """
         s = text.replace("\r\n", "\n").replace("\r", "\n").strip()
         if not s:
             return []
-
         parts: list[str] = []
         buf: list[str] = []
         quote: str | None = None
-
         for ch in s:
             if quote is not None:
                 buf.append(ch)
                 if ch == quote:
                     quote = None
                 continue
-
             if ch in ("'", '"'):
                 quote = ch
                 buf.append(ch)
                 continue
-
             if ch == ";":
                 part = "".join(buf).strip()
                 if part:
                     parts.append(part)
                 buf = []
                 continue
-
-            # treat newlines as whitespace separators (won't break a command)
             if ch == "\n":
                 buf.append(" ")
                 continue
-
             buf.append(ch)
-
         tail = "".join(buf).strip()
         if tail:
             parts.append(tail)
-
         return parts
 
+    # -------------------------
+    # Quick Toggles
+    # -------------------------
     def toggle_animations(self) -> None:
         if self._device is None:
             self._log("No device connected. Click 'Connect Device' first.", level="error")
@@ -1098,7 +559,6 @@ class HyperTweakApp:
             f"settings put global animator_duration_scale {value}",
         ]
         self._append_console(f"Running {len(cmds)} command(s)...\n\n")
-
         errors: list[str] = []
 
         def run_one(c: str) -> None:
@@ -1117,8 +577,7 @@ class HyperTweakApp:
             t.join()
 
         self._animations_disabled = disable
-        new_label = "Enable animations" if disable else "Disable animations"
-        self._ui_queue.put(("anim_btn_text", new_label))
+        self._ui_queue.put(("anim_btn_text", "Enable animations" if disable else "Disable animations"))
 
         if errors:
             self._append_console("\nERRORS:\n" + "\n".join(errors) + "\n")
@@ -1154,7 +613,7 @@ class HyperTweakApp:
         self._log_async(f"Recents style set: {label}", level="success")
 
     # -------------------------
-    # Background execution + logging
+    # Background + polling
     # -------------------------
     def _run_bg(self, name: str, fn: Callable[[], None]) -> None:
         def runner() -> None:
@@ -1184,20 +643,24 @@ class HyperTweakApp:
                     elif kind == "auto_refresh":
                         self.refresh_current_settings()
                     elif kind == "current":
-                        self._apply_current_kv(msg)
+                        apply_current_kv(self, msg)
                     elif kind == "busy":
                         busy = msg == "1"
                         self.btn_connect.configure(state=("disabled" if busy else "normal"))
                         self.btn_reboot.configure(state=("disabled" if busy else "normal"))
                         self.btn_apply.configure(state=("disabled" if busy else "normal"))
-                        try:
-                            self.btn_run_custom_cmd.configure(state=("disabled" if busy else "normal"))
-                            self.btn_toggle_animations.configure(state=("disabled" if busy else "normal"))
-                            self.btn_recents_vertical.configure(state=("disabled" if busy else "normal"))
-                            self.btn_recents_horizontal.configure(state=("disabled" if busy else "normal"))
-                            self.btn_recents_stacked.configure(state=("disabled" if busy else "normal"))
-                        except Exception:
-                            pass
+                        for btn in (
+                            getattr(self, "btn_run_custom_cmd", None),
+                            getattr(self, "btn_toggle_animations", None),
+                            getattr(self, "btn_recents_vertical", None),
+                            getattr(self, "btn_recents_horizontal", None),
+                            getattr(self, "btn_recents_stacked", None),
+                        ):
+                            if btn is not None:
+                                try:
+                                    btn.configure(state=("disabled" if busy else "normal"))
+                                except Exception:
+                                    pass
                     elif kind == "console":
                         self._append_console_ui(msg)
                     elif kind == "console_clear":
@@ -1214,76 +677,6 @@ class HyperTweakApp:
             self.root.after(120, poll)
 
         self.root.after(120, poll)
-
-    def _apply_current_kv(self, kv: str) -> None:
-        if "=" not in kv:
-            return
-        key, val = kv.split("=", 1)
-        key = key.strip()
-        val = val.strip()
-
-        if key == "deviceLevelList":
-            self.cur_device_level_list.set(val)
-            # Best-effort parse so dropdowns reflect device state
-            m = re.search(r"v:(\d+)\s*,\s*c:(\d+)\s*[.,]\s*g:(\d+)", val)
-            if m:
-                try:
-                    self.var_v.set(int(m.group(1)))
-                    self.var_c.set(int(m.group(2)))
-                    self.var_g.set(int(m.group(3)))
-                except Exception:
-                    pass
-            return
-
-        mapping: dict[str, tk.StringVar] = {
-            "window_animation_scale": self.cur_window_animation_scale,
-            "transition_animation_scale": self.cur_transition_animation_scale,
-            "animator_duration_scale": self.cur_animator_duration_scale,
-            "cpulevel": self.cur_cpulevel,
-            "gpulevel": self.cur_gpulevel,
-            "advanced_visual_release": self.cur_advanced_visual_release,
-            "rt_enable_templimit": self.cur_temp_limit_enabled,
-            "rt_templimit_bottom": self.cur_temp_limit_bottom,
-            "rt_templimit_ceiling": self.cur_temp_limit_ceiling,
-            "miui_home_animation_rate": self.cur_miui_home_animation_rate,
-            "task_stack_view_layout_style": self.cur_recents_style,
-            "background_blur_supported": self.cur_background_blur_supported,
-        }
-        if key in mapping:
-            mapping[key].set(val)
-
-        # Best-effort sync into inputs where it makes sense
-        if key == "cpulevel" and val.isdigit():
-            self.var_cpulevel.set(int(val))
-        elif key == "gpulevel" and val.isdigit():
-            self.var_gpulevel.set(int(val))
-        elif key == "advanced_visual_release" and val.isdigit():
-            self.var_advanced_visual_release.set(int(val))
-        elif key == "rt_enable_templimit":
-            self.var_temp_enable.set(val in ("1", "true", "True", "enabled", "on", "ON"))
-            self._sync_temp_enabled_state()
-        elif key == "rt_templimit_bottom" and val.isdigit():
-            self.var_temp_bottom.set(val)
-        elif key == "rt_templimit_ceiling" and val.isdigit():
-            self.var_temp_ceiling.set(val)
-        elif key == "miui_home_animation_rate":
-            home_anim_reverse = {"0": "Relaxed", "1": "Balanced", "2": "Fast"}
-            if val in home_anim_reverse:
-                self.var_home_anim.set(home_anim_reverse[val])
-            elif val in ("Relaxed", "Balanced", "Fast"):
-                self.var_home_anim.set(val)
-        elif key == "task_stack_view_layout_style":
-            recents_style_reverse = {"0": "Vertically", "1": "Horizontally", "2": "Stacked"}
-            if val in recents_style_reverse:
-                self.var_recents_style.set(recents_style_reverse[val])
-            elif val in ("Vertically", "Horizontally", "Stacked"):
-                self.var_recents_style.set(val)
-        elif key == "background_blur_supported":
-            vlow = val.lower()
-            if vlow in ("1", "true", "enabled"):
-                self.var_background_blur_supported.set("Enabled")
-            elif vlow in ("0", "false", "disabled"):
-                self.var_background_blur_supported.set("Disabled")
 
     def _log_async(self, message: str, level: str = "info") -> None:
         kind = "log"
@@ -1306,13 +699,8 @@ class HyperTweakApp:
         self.txt_log.delete("1.0", "end")
         self.txt_log.configure(state="disabled")
 
-    # -------------------------
-    # Validation
-    # -------------------------
     def _validate_int_entry(self, proposed: str) -> bool:
-        if proposed == "":
-            return True
-        return proposed.isdigit()
+        return proposed == "" or proposed.isdigit()
 
     def run(self) -> None:
         self.root.mainloop()
