@@ -15,7 +15,7 @@ from tkinter import filedialog, ttk
 from typing import Any, Callable
 
 import ttkbootstrap as tb
-from ttkbootstrap.scrolled import ScrolledFrame
+from ttkbootstrap.widgets.scrolled import ScrolledFrame
 try:
     from ppadb.client import Client as AdbClient  # pure-python-adb
 except Exception:  # pragma: no cover
@@ -215,6 +215,9 @@ class HyperTweakApp:
         self.cur_cpulevel = tk.StringVar(value="—")
         self.cur_gpulevel = tk.StringVar(value="—")
         self.cur_advanced_visual_release = tk.StringVar(value="—")
+        self.cur_window_animation_scale = tk.StringVar(value="—")
+        self.cur_transition_animation_scale = tk.StringVar(value="—")
+        self.cur_animator_duration_scale = tk.StringVar(value="—")
         self.cur_temp_limit_enabled = tk.StringVar(value="—")
         self.cur_temp_limit_bottom = tk.StringVar(value="—")
         self.cur_temp_limit_ceiling = tk.StringVar(value="—")
@@ -232,13 +235,8 @@ class HyperTweakApp:
 
         r = 0
         r = self._section_current_values(content, r)
-        r = self._section_device_levels(content, r)
-        r = self._section_computility(content, r)
-        r = self._section_advanced_visual_release(content, r)
-        r = self._section_background_blur_supported(content, r)
-        r = self._section_miui_home_animation(content, r)
-        r = self._section_recents_style(content, r)
-        r = self._section_temp_limit(content, r)
+        r = self._section_quick_toggles(content, r)
+        r = self._section_advanced_settings(content, r)
 
         # Apply (fixed, bottom; spans both columns)
         footer = ttk.Frame(self.root, padding=(14, 6, 14, 8))
@@ -266,14 +264,24 @@ class HyperTweakApp:
         )
         self.btn_reboot.grid(row=0, column=1, sticky="e", padx=(10, 0))
 
-        # Status log (right)
-        log_wrap = ttk.Frame(self.root, padding=(10, 8, 14, 10), width=360)
-        log_wrap.grid(row=1, column=1, sticky="nsew")
+        # Status / console area (right)
+        right_wrap = ttk.Frame(self.root, padding=(10, 8, 14, 10), width=360)
+        right_wrap.grid(row=1, column=1, sticky="nsew")
         self.root.rowconfigure(1, weight=1)
-        log_wrap.rowconfigure(1, weight=1)
-        log_wrap.grid_propagate(False)
+        right_wrap.rowconfigure(0, weight=1)
+        right_wrap.grid_propagate(False)
 
-        log_header = ttk.Frame(log_wrap)
+        notebook = ttk.Notebook(right_wrap)
+        notebook.grid(row=0, column=0, sticky="nsew")
+        right_wrap.columnconfigure(0, weight=1)
+
+        # Status Log tab
+        log_tab = ttk.Frame(notebook)
+        notebook.add(log_tab, text="Status Log")
+        log_tab.rowconfigure(1, weight=1)
+        log_tab.columnconfigure(0, weight=1)
+
+        log_header = ttk.Frame(log_tab)
         log_header.grid(row=0, column=0, sticky="ew")
         log_header.columnconfigure(0, weight=1)
 
@@ -282,7 +290,7 @@ class HyperTweakApp:
         self.btn_clear.grid(row=0, column=1, sticky="e")
 
         self.txt_log = tk.Text(
-            log_wrap,
+            log_tab,
             height=1,
             wrap="word",
             padx=10,
@@ -293,9 +301,68 @@ class HyperTweakApp:
             relief="flat",
         )
         self.txt_log.grid(row=1, column=0, sticky="nsew")
-        log_wrap.columnconfigure(0, weight=1)
+
+        # Command Console tab
+        console_tab = ttk.Frame(notebook)
+        notebook.add(console_tab, text="Command Console")
+        # row 0: command input (1/3 height), row 1: output (2/3 height)
+        console_tab.rowconfigure(0, weight=1)
+        console_tab.rowconfigure(1, weight=2)
+        console_tab.columnconfigure(0, weight=1)
+
+        # Command input area (top ~1/3)
+        cmd_area = ttk.Frame(console_tab)
+        cmd_area.grid(row=0, column=0, sticky="nsew", pady=(0, 6))
+        cmd_area.columnconfigure(0, weight=1)
+        cmd_area.rowconfigure(1, weight=1)
+
+        console_header = ttk.Frame(cmd_area)
+        console_header.grid(row=0, column=0, sticky="ew", pady=(0, 4))
+        console_header.columnconfigure(0, weight=1)
+
+        ttk.Label(console_header, text="ADB shell command:").grid(row=0, column=0, sticky="w")
+
+        cmd_row = ttk.Frame(cmd_area)
+        cmd_row.grid(row=1, column=0, sticky="ew")
+        cmd_row.columnconfigure(0, weight=1)
+
+        self.txt_custom_cmd = tk.Text(
+            cmd_row,
+            height=3,
+            wrap="word",
+            padx=6,
+            pady=4,
+            bg="#0e1116",
+            fg="#e7eaf0",
+            insertbackground="#e7eaf0",
+            relief="flat",
+        )
+        self.txt_custom_cmd.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        self.txt_custom_cmd.insert("1.0", "getprop ro.product.model")
+
+        self.btn_run_custom_cmd = ttk.Button(
+            cmd_row,
+            text="Run",
+            width=8,
+            command=self.run_custom_command,
+        )
+        self.btn_run_custom_cmd.grid(row=0, column=1, sticky="e")
+
+        # Output area (bottom ~2/3)
+        self.txt_console = tk.Text(
+            console_tab,
+            wrap="word",
+            padx=10,
+            pady=6,
+            bg="#0e1116",
+            fg="#e7eaf0",
+            insertbackground="#e7eaf0",
+            relief="flat",
+        )
+        self.txt_console.grid(row=1, column=0, sticky="nsew")
 
         self._log("Ready. Connect a device via USB debugging.")
+        self._append_console("Console ready.\n")
 
     def _section_frame(self, parent: ttk.Widget, title: str) -> ttk.Labelframe:
         lf = ttk.Labelframe(parent, text=title, padding=(12, 10, 12, 10))
@@ -361,23 +428,100 @@ class HyperTweakApp:
             row=0, column=2, sticky="w", padx=(10, 0)
         )
 
-        def add(r: int, label: str, var: tk.StringVar) -> None:
-            ttk.Label(lf, text=label).grid(row=r, column=0, sticky="w", padx=(0, 10))
-            ttk.Label(lf, textvariable=var, foreground="#c9d1d9").grid(row=r, column=1, sticky="w")
+        # Scrollable values list (keeps buttons fixed)
+        values = ScrolledFrame(lf, autohide=False, height=170, padding=(0, 0, 0, 0))
+        values.grid(row=1, column=0, columnspan=2, sticky="ew")
+        values.columnconfigure(0, weight=1)
 
-        r = 1
+        rows = ttk.Frame(values)
+        rows.grid(row=0, column=0, sticky="ew")
+        rows.columnconfigure(1, weight=1)
+
+        def add(r: int, label: str, var: tk.StringVar) -> None:
+            ttk.Label(rows, text=label).grid(row=r, column=0, sticky="w", padx=(0, 10))
+            ttk.Label(rows, textvariable=var, foreground="#c9d1d9").grid(row=r, column=1, sticky="w")
+
+        r = 0
+        # Quick Toggles
+        add(r, "window_animation_scale", self.cur_window_animation_scale); r += 1
+        add(r, "transition_animation_scale", self.cur_transition_animation_scale); r += 1
+        add(r, "animator_duration_scale", self.cur_animator_duration_scale); r += 1
+        add(r, "task_stack_view_layout_style", self.cur_recents_style); r += 1
+
+        # Advanced Settings
         add(r, "deviceLevelList", self.cur_device_level_list); r += 1
         add(r, "cpulevel", self.cur_cpulevel); r += 1
         add(r, "gpulevel", self.cur_gpulevel); r += 1
         add(r, "advanced_visual_release", self.cur_advanced_visual_release); r += 1
         add(r, "background_blur_supported", self.cur_background_blur_supported); r += 1
         add(r, "miui_home_animation_rate", self.cur_miui_home_animation_rate); r += 1
-        add(r, "task_stack_view_layout_style", self.cur_recents_style); r += 1
         add(r, "rt_enable_templimit", self.cur_temp_limit_enabled); r += 1
         add(r, "rt_templimit_bottom", self.cur_temp_limit_bottom); r += 1
         add(r, "rt_templimit_ceiling", self.cur_temp_limit_ceiling); r += 1
         # temp limit at the end, per UI order
         
+        return row + 1
+
+    def _section_quick_toggles(self, parent: ttk.Widget, row: int) -> int:
+        lf = self._section_frame(parent, "Quick Toggles")
+        lf.grid(row=row, column=0, sticky="ew", pady=(0, 8))
+        lf.columnconfigure(0, weight=1)
+        # _section_frame reserves extra space in column 1; make our content span it.
+        lf.columnconfigure(1, weight=0)
+
+        # Remove animations
+        anim_box = ttk.Labelframe(lf, text="Remove animations", padding=(10, 8, 10, 10))
+        anim_box.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        anim_box.columnconfigure(0, weight=1)
+
+        self._animations_disabled = False
+        self.btn_toggle_animations = ttk.Button(
+            anim_box,
+            text="Disable animations",
+            style="warning.TButton",
+            command=self.toggle_animations,
+        )
+        self.btn_toggle_animations.grid(row=0, column=0, sticky="ew")
+
+        # Recents style quick buttons
+        rec_box = ttk.Labelframe(lf, text="Recents style", padding=(10, 8, 10, 10))
+        rec_box.grid(row=1, column=0, columnspan=2, sticky="ew")
+        for i in range(3):
+            rec_box.columnconfigure(i, weight=1)
+
+        self.btn_recents_vertical = ttk.Button(
+            rec_box, text="Vertically", command=lambda: self.set_recents_style("Vertically")
+        )
+        self.btn_recents_horizontal = ttk.Button(
+            rec_box, text="Horizontally", command=lambda: self.set_recents_style("Horizontally")
+        )
+        self.btn_recents_stacked = ttk.Button(
+            rec_box, text="Stacked", command=lambda: self.set_recents_style("Stacked")
+        )
+
+        self.btn_recents_vertical.grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        self.btn_recents_horizontal.grid(row=0, column=1, sticky="ew", padx=(0, 6))
+        self.btn_recents_stacked.grid(row=0, column=2, sticky="ew")
+
+        return row + 1
+
+    def _section_advanced_settings(self, parent: ttk.Widget, row: int) -> int:
+        outer = self._section_frame(parent, "Advanced Settings")
+        outer.grid(row=row, column=0, sticky="ew", pady=(0, 8))
+        outer.columnconfigure(0, weight=1)
+        outer.columnconfigure(1, weight=0)
+
+        inner = ttk.Frame(outer)
+        inner.grid(row=0, column=0, columnspan=2, sticky="ew")
+        inner.columnconfigure(0, weight=1)
+
+        r = 0
+        r = self._section_device_levels(inner, r)
+        r = self._section_computility(inner, r)
+        r = self._section_advanced_visual_release(inner, r)
+        r = self._section_background_blur_supported(inner, r)
+        r = self._section_miui_home_animation(inner, r)
+        r = self._section_temp_limit(inner, r)
         return row + 1
 
     def _section_device_levels(self, parent: ttk.Widget, row: int) -> int:
@@ -647,6 +791,10 @@ class HyperTweakApp:
 
     def _current_snapshot(self) -> dict[str, str]:
         return {
+            "window_animation_scale": self.cur_window_animation_scale.get(),
+            "transition_animation_scale": self.cur_transition_animation_scale.get(),
+            "animator_duration_scale": self.cur_animator_duration_scale.get(),
+            "task_stack_view_layout_style": self.cur_recents_style.get(),
             "deviceLevelList": self.cur_device_level_list.get(),
             "cpulevel": self.cur_cpulevel.get(),
             "gpulevel": self.cur_gpulevel.get(),
@@ -655,7 +803,6 @@ class HyperTweakApp:
             "rt_templimit_bottom": self.cur_temp_limit_bottom.get(),
             "rt_templimit_ceiling": self.cur_temp_limit_ceiling.get(),
             "miui_home_animation_rate": self.cur_miui_home_animation_rate.get(),
-            "task_stack_view_layout_style": self.cur_recents_style.get(),
             "background_blur_supported": self.cur_background_blur_supported.get(),
         }
 
@@ -771,6 +918,10 @@ class HyperTweakApp:
         assert self._device is not None
 
         queries: list[tuple[str, str]] = [
+            ("window_animation_scale", "settings get global window_animation_scale"),
+            ("transition_animation_scale", "settings get global transition_animation_scale"),
+            ("animator_duration_scale", "settings get global animator_duration_scale"),
+            ("task_stack_view_layout_style", "settings get global task_stack_view_layout_style"),
             ("deviceLevelList", "settings get system deviceLevelList"),
             ("cpulevel", "getprop persist.sys.computility.cpulevel"),
             ("gpulevel", "getprop persist.sys.computility.gpulevel"),
@@ -779,7 +930,6 @@ class HyperTweakApp:
             ("rt_templimit_bottom", "settings get system rt_templimit_bottom"),
             ("rt_templimit_ceiling", "settings get system rt_templimit_ceiling"),
             ("miui_home_animation_rate", "settings get system miui_home_animation_rate"),
-            ("task_stack_view_layout_style", "settings get global task_stack_view_layout_style"),
             ("background_blur_supported", "getprop persist.sys.background_blur_supported"),
         ]
 
@@ -847,6 +997,162 @@ class HyperTweakApp:
         elapsed_ms = int((time.time() - started) * 1000)
         self._log_async(f"Done in {elapsed_ms} ms.", level="success")
 
+    def run_custom_command(self) -> None:
+        cmd = self.txt_custom_cmd.get("1.0", "end-1c").strip()
+        if not cmd:
+            return
+        # clear previous output before running a new command
+        self._ui_queue.put(("console_clear", ""))
+        if self._device is None:
+            self._append_console("[!] No device connected. Click 'Connect Device' first.\n")
+            return
+        self._run_bg("custom_cmd", lambda: self._run_custom_command_bg(cmd))
+
+    def _append_console(self, text: str) -> None:
+        # marshal console writes back to the UI thread
+        self._ui_queue.put(("console", text))
+
+    def _append_console_ui(self, text: str) -> None:
+        self.txt_console.configure(state="normal")
+        self.txt_console.insert("end", text)
+        self.txt_console.see("end")
+        self.txt_console.configure(state="disabled")
+
+    def _run_custom_command_bg(self, cmd: str) -> None:
+        assert self._device is not None
+        commands = self._split_shell_commands(cmd)
+        if not commands:
+            return
+        self._append_console(f"Running {len(commands)} command(s)...\n\n")
+        for one in commands:
+            self._append_console(f"$ {one}\n")
+            try:
+                out = self._device.shell(one)
+            except Exception as e:
+                self._append_console(f"ERROR: {e}\n\n")
+                continue
+            out = (out or "").rstrip()
+            if out:
+                self._append_console(f"{out}\n\n")
+            else:
+                self._append_console("\n")
+
+    def _split_shell_commands(self, text: str) -> list[str]:
+        """
+        Split a command string on ';' while respecting quoted strings.
+        Allows entering multiple commands in one Run: cmd1; cmd2; cmd3
+        """
+        s = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+        if not s:
+            return []
+
+        parts: list[str] = []
+        buf: list[str] = []
+        quote: str | None = None
+
+        for ch in s:
+            if quote is not None:
+                buf.append(ch)
+                if ch == quote:
+                    quote = None
+                continue
+
+            if ch in ("'", '"'):
+                quote = ch
+                buf.append(ch)
+                continue
+
+            if ch == ";":
+                part = "".join(buf).strip()
+                if part:
+                    parts.append(part)
+                buf = []
+                continue
+
+            # treat newlines as whitespace separators (won't break a command)
+            if ch == "\n":
+                buf.append(" ")
+                continue
+
+            buf.append(ch)
+
+        tail = "".join(buf).strip()
+        if tail:
+            parts.append(tail)
+
+        return parts
+
+    def toggle_animations(self) -> None:
+        if self._device is None:
+            self._log("No device connected. Click 'Connect Device' first.", level="error")
+            return
+        disable = not getattr(self, "_animations_disabled", False)
+        self._run_bg("animations", lambda: self._toggle_animations_bg(disable))
+
+    def _toggle_animations_bg(self, disable: bool) -> None:
+        assert self._device is not None
+        value = "0" if disable else "1"
+        cmds = [
+            f"settings put global window_animation_scale {value}",
+            f"settings put global transition_animation_scale {value}",
+            f"settings put global animator_duration_scale {value}",
+        ]
+        self._append_console(f"Running {len(cmds)} command(s)...\n\n")
+
+        errors: list[str] = []
+
+        def run_one(c: str) -> None:
+            try:
+                self._device.shell(c)
+            except Exception as e:
+                errors.append(f"{c} -> {e}")
+
+        threads: list[threading.Thread] = []
+        for c in cmds:
+            self._append_console(f"$ {c}\n")
+            t = threading.Thread(target=run_one, args=(c,))
+            threads.append(t)
+            t.start()
+        for t in threads:
+            t.join()
+
+        self._animations_disabled = disable
+        new_label = "Enable animations" if disable else "Disable animations"
+        self._ui_queue.put(("anim_btn_text", new_label))
+
+        if errors:
+            self._append_console("\nERRORS:\n" + "\n".join(errors) + "\n")
+            self._log_async("Animation toggle completed with errors.", level="error")
+        else:
+            self._append_console("\nDone.\n")
+            self._log_async("Animation toggle applied.", level="success")
+
+    def set_recents_style(self, style: str) -> None:
+        if self._device is None:
+            self._log("No device connected. Click 'Connect Device' first.", level="error")
+            return
+        style_map = {"Vertically": 0, "Horizontally": 1, "Stacked": 2}
+        if style not in style_map:
+            self._log(f"Unknown recents style: {style}", level="error")
+            return
+        self.var_recents_style.set(style)
+        cmd = f"settings put global task_stack_view_layout_style {style_map[style]}"
+        self._run_bg("recents_style", lambda: self._run_one_quick_cmd_bg(style, cmd))
+
+    def _run_one_quick_cmd_bg(self, label: str, cmd: str) -> None:
+        assert self._device is not None
+        self._append_console(f"$ {cmd}\n")
+        try:
+            out = self._device.shell(cmd)
+        except Exception as e:
+            self._append_console(f"ERROR: {e}\n")
+            self._log_async(f"Recents style '{label}' failed.", level="error")
+            return
+        out = (out or "").rstrip()
+        if out:
+            self._append_console(f"{out}\n")
+        self._log_async(f"Recents style set: {label}", level="success")
+
     # -------------------------
     # Background execution + logging
     # -------------------------
@@ -884,6 +1190,25 @@ class HyperTweakApp:
                         self.btn_connect.configure(state=("disabled" if busy else "normal"))
                         self.btn_reboot.configure(state=("disabled" if busy else "normal"))
                         self.btn_apply.configure(state=("disabled" if busy else "normal"))
+                        try:
+                            self.btn_run_custom_cmd.configure(state=("disabled" if busy else "normal"))
+                            self.btn_toggle_animations.configure(state=("disabled" if busy else "normal"))
+                            self.btn_recents_vertical.configure(state=("disabled" if busy else "normal"))
+                            self.btn_recents_horizontal.configure(state=("disabled" if busy else "normal"))
+                            self.btn_recents_stacked.configure(state=("disabled" if busy else "normal"))
+                        except Exception:
+                            pass
+                    elif kind == "console":
+                        self._append_console_ui(msg)
+                    elif kind == "console_clear":
+                        self.txt_console.configure(state="normal")
+                        self.txt_console.delete("1.0", "end")
+                        self.txt_console.configure(state="disabled")
+                    elif kind == "anim_btn_text":
+                        try:
+                            self.btn_toggle_animations.configure(text=msg)
+                        except Exception:
+                            pass
             except queue.Empty:
                 pass
             self.root.after(120, poll)
@@ -911,6 +1236,9 @@ class HyperTweakApp:
             return
 
         mapping: dict[str, tk.StringVar] = {
+            "window_animation_scale": self.cur_window_animation_scale,
+            "transition_animation_scale": self.cur_transition_animation_scale,
+            "animator_duration_scale": self.cur_animator_duration_scale,
             "cpulevel": self.cur_cpulevel,
             "gpulevel": self.cur_gpulevel,
             "advanced_visual_release": self.cur_advanced_visual_release,
