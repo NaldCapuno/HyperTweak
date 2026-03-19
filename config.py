@@ -1,5 +1,3 @@
-"""Configuration models and shell command building for HyperTweak."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -34,10 +32,6 @@ class ApplySelection:
 
 
 def build_shell_commands(payload: SettingsPayload, selection: ApplySelection) -> list[str]:
-    """
-    Build ADB shell commands from payload and selection.
-    Uses settings put system/global and MIUI mqsas service call where needed.
-    """
     def put(key: str, value: Any) -> str:
         return f"settings put system {key} {value}"
 

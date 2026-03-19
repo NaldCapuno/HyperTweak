@@ -1,5 +1,3 @@
-"""ADB path resolution and server startup for HyperTweak."""
-
 from __future__ import annotations
 
 import os
@@ -9,10 +7,6 @@ import sys
 
 
 def get_adb_path() -> str:
-    """
-    Resolve path to adb.exe.
-    Prefers platform-tools next to executable, then next to script, then PATH.
-    """
     adb: str | None = None
 
     if getattr(sys, "frozen", False):
@@ -40,10 +34,6 @@ def get_adb_path() -> str:
 
 
 def start_adb_server(adb_path: str | None = None) -> None:
-    """
-    Start ADB server. If already running, adb prints a benign message.
-    Raises RuntimeError on failure.
-    """
     adb = adb_path or get_adb_path()
     proc = subprocess.run(
         [adb, "start-server"],

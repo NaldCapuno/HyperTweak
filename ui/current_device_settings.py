@@ -1,11 +1,7 @@
-"""Current Device Settings section for HyperTweak."""
-
 from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
-
-from ttkbootstrap.widgets.scrolled import ScrolledFrame
 
 from typing import TYPE_CHECKING
 
@@ -16,49 +12,56 @@ if TYPE_CHECKING:
 
 
 def build_current_device_settings(parent: ttk.Widget, app: "HyperTweakApp", row: int) -> int:
-    """Build the Current Device Settings section. Returns next row."""
     lf = section_frame(parent, "Current Device Settings")
-    lf.grid(row=row, column=0, sticky="ew", pady=(0, 8))
-    lf.columnconfigure(1, weight=1)
+    lf.grid(row=row, column=0, sticky="nsew", pady=(0, 8))
+    lf.columnconfigure(0, weight=1)
+    lf.rowconfigure(1, weight=1)
 
     btns = ttk.Frame(lf)
-    btns.grid(row=0, column=0, sticky="w", columnspan=2, pady=(0, 8))
+    btns.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+    btns.columnconfigure(0, weight=1)
 
     ttk.Button(btns, text="Refresh from Device", command=app.refresh_current_settings).grid(
         row=0, column=0, sticky="w"
     )
     ttk.Button(btns, text="Save", command=app.save_current_settings).grid(
-        row=0, column=1, sticky="w", padx=(10, 0)
+        row=0, column=1, sticky="e", padx=(10, 0)
     )
     ttk.Button(btns, text="Load", command=app.load_current_settings).grid(
-        row=0, column=2, sticky="w", padx=(10, 0)
+        row=0, column=2, sticky="e", padx=(10, 0)
     )
 
-    values = ScrolledFrame(lf, autohide=False, height=170, padding=(0, 0, 0, 0))
-    values.grid(row=1, column=0, columnspan=2, sticky="ew")
-    values.columnconfigure(0, weight=1)
+    notebook = ttk.Notebook(lf)
+    notebook.grid(row=1, column=0, sticky="nsew")
 
-    rows = ttk.Frame(values)
-    rows.grid(row=0, column=0, sticky="ew")
-    rows.columnconfigure(1, weight=1)
+    def _add_settings_tab(title: str, text_attr: str) -> None:
+        tab = ttk.Frame(notebook)
+        tab.columnconfigure(0, weight=1)
+        tab.rowconfigure(0, weight=1)
 
-    def add(r: int, label: str, var: tk.StringVar) -> None:
-        ttk.Label(rows, text=label).grid(row=r, column=0, sticky="w", padx=(0, 10))
-        ttk.Label(rows, textvariable=var, foreground="#c9d1d9").grid(row=r, column=1, sticky="w")
+        txt = tk.Text(
+            tab,
+            wrap="word",
+            padx=8,
+            pady=4,
+            bg="#0e1116",
+            fg="#e7eaf0",
+            insertbackground="#e7eaf0",
+            relief="flat",
+        )
+        txt.grid(row=0, column=0, sticky="nsew")
+        txt.configure(state="disabled")
 
-    r = 0
-    add(r, "window_animation_scale", app.cur_window_animation_scale); r += 1
-    add(r, "transition_animation_scale", app.cur_transition_animation_scale); r += 1
-    add(r, "animator_duration_scale", app.cur_animator_duration_scale); r += 1
-    add(r, "task_stack_view_layout_style", app.cur_recents_style); r += 1
-    add(r, "deviceLevelList", app.cur_device_level_list); r += 1
-    add(r, "cpulevel", app.cur_cpulevel); r += 1
-    add(r, "gpulevel", app.cur_gpulevel); r += 1
-    add(r, "advanced_visual_release", app.cur_advanced_visual_release); r += 1
-    add(r, "background_blur_supported", app.cur_background_blur_supported); r += 1
-    add(r, "miui_home_animation_rate", app.cur_miui_home_animation_rate); r += 1
-    add(r, "rt_enable_templimit", app.cur_temp_limit_enabled); r += 1
-    add(r, "rt_templimit_bottom", app.cur_temp_limit_bottom); r += 1
-    add(r, "rt_templimit_ceiling", app.cur_temp_limit_ceiling); r += 1
+        scroll = ttk.Scrollbar(tab, orient="vertical", command=txt.yview)
+        scroll.grid(row=0, column=1, sticky="ns")
+        txt.configure(yscrollcommand=scroll.set)
+
+        setattr(app, text_attr, txt)
+        notebook.add(tab, text=title)
+
+    _add_settings_tab("system", "txt_settings_system")
+    _add_settings_tab("secure", "txt_settings_secure")
+    _add_settings_tab("global", "txt_settings_global")
+    _add_settings_tab("props", "txt_settings_props")
 
     return row + 1

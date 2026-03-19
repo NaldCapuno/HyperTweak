@@ -1,5 +1,3 @@
-"""HyperTweak - Android device settings tweaker via ADB."""
-
 from __future__ import annotations
 
 import json
@@ -100,7 +98,18 @@ class HyperTweakApp:
         footer.columnconfigure(0, weight=1)
 
         btns = ttk.Frame(footer)
-        btns.grid(row=0, column=0, sticky="e")
+        btns.grid(row=0, column=0, sticky="ew")
+        btns.columnconfigure(0, weight=1)
+
+        self.btn_restore_previous = ttk.Button(
+            btns,
+            text="Restore previous settings",
+            command=self.restore_previous_settings,
+            style="secondary.TButton",
+            width=24,
+        )
+        self.btn_restore_previous.grid(row=0, column=0, sticky="w")
+        self.btn_restore_previous.grid_remove()
 
         self.btn_apply = ttk.Button(
             btns,
@@ -109,7 +118,7 @@ class HyperTweakApp:
             style="success.TButton",
             width=18,
         )
-        self.btn_apply.grid(row=0, column=0, sticky="e")
+        self.btn_apply.grid(row=0, column=1, sticky="e")
 
         self.btn_reboot = ttk.Button(
             btns,
@@ -118,7 +127,7 @@ class HyperTweakApp:
             style="danger.TButton",
             width=10,
         )
-        self.btn_reboot.grid(row=0, column=1, sticky="e", padx=(10, 0))
+        self.btn_reboot.grid(row=0, column=2, sticky="e", padx=(10, 0))
 
         right_wrap = ttk.Frame(self.root, padding=(10, 8, 14, 10), width=360)
         right_wrap.grid(row=1, column=1, sticky="nsew")
@@ -181,7 +190,7 @@ class HyperTweakApp:
         self.apply_advanced_visual_release = tk.BooleanVar(value=True)
         self.apply_temp_limit = tk.BooleanVar(value=False)
         self.apply_miui_home_animation = tk.BooleanVar(value=True)
-        self.apply_recents_style = tk.BooleanVar(value=True)
+        self.apply_recents_style = tk.BooleanVar(value=False)  # Recents applies via Quick Toggles only
         self.apply_background_blur_supported = tk.BooleanVar(value=True)
 
         self.cur_device_level_list = tk.StringVar(value="—")
@@ -250,6 +259,13 @@ class HyperTweakApp:
         self._log_async(f"Connected to: {name}")
         self._ui_queue.put(("auto_refresh", "1"))
 
+        # Also pull current advanced-related settings and push them into the UI inputs.
+        snap = self._snapshot_advanced_settings_bg()
+        for key, val in snap.items():
+            if val is None:
+                continue
+            self._ui_queue.put(("current", f"{key}={val}"))
+
     def _ensure_adb_server_running_bg(self) -> None:
         self._log_async("Initializing ADB server (adb start-server)...")
         adb.start_adb_server()
@@ -274,21 +290,22 @@ class HyperTweakApp:
         self._run_bg("refresh", self._refresh_current_settings_bg)
 
     def _current_snapshot(self) -> dict[str, str]:
-        return {
-            "window_animation_scale": self.cur_window_animation_scale.get(),
-            "transition_animation_scale": self.cur_transition_animation_scale.get(),
-            "animator_duration_scale": self.cur_animator_duration_scale.get(),
-            "task_stack_view_layout_style": self.cur_recents_style.get(),
-            "deviceLevelList": self.cur_device_level_list.get(),
-            "cpulevel": self.cur_cpulevel.get(),
-            "gpulevel": self.cur_gpulevel.get(),
-            "advanced_visual_release": self.cur_advanced_visual_release.get(),
-            "rt_enable_templimit": self.cur_temp_limit_enabled.get(),
-            "rt_templimit_bottom": self.cur_temp_limit_bottom.get(),
-            "rt_templimit_ceiling": self.cur_temp_limit_ceiling.get(),
-            "miui_home_animation_rate": self.cur_miui_home_animation_rate.get(),
-            "background_blur_supported": self.cur_background_blur_supported.get(),
-        }
+        values: dict[str, str] = {}
+        for name, attr in (
+            ("system", "txt_settings_system"),
+            ("secure", "txt_settings_secure"),
+            ("global", "txt_settings_global"),
+            ("props", "txt_settings_props"),
+        ):
+            txt = getattr(self, attr, None)
+            if txt is None:
+                continue
+            try:
+                txt.configure(state="normal")
+                values[name] = txt.get("1.0", "end-1c")
+            finally:
+                txt.configure(state="disabled")
+        return values
 
     def save_current_settings(self) -> None:
         snapshot = self._current_snapshot()
@@ -332,91 +349,64 @@ class HyperTweakApp:
             if not isinstance(values, dict):
                 raise ValueError("Invalid file format: expected JSON object.")
 
-            recents_style_reverse = {"0": "Vertically", "1": "Horizontally", "2": "Stacked"}
-            applied = 0
-            for k, v in values.items():
-                if v is None:
+            tabs = {
+                "system": "txt_settings_system",
+                "secure": "txt_settings_secure",
+                "global": "txt_settings_global",
+                "props": "txt_settings_props",
+            }
+            for key, attr in tabs.items():
+                txt = getattr(self, attr, None)
+                if txt is None or key not in values:
                     continue
-                key = str(k)
-                val = str(v).strip()
+                content = str(values.get(key, ""))
+                txt.configure(state="normal")
+                txt.delete("1.0", "end")
+                txt.insert("1.0", content)
+                txt.configure(state="disabled")
 
-                if key == "deviceLevelList":
-                    m = re.search(r"v:(\d+)\s*,\s*c:(\d+)\s*[.,]\s*g:(\d+)", val)
-                    if m:
-                        self.var_v.set(int(m.group(1)))
-                        self.var_c.set(int(m.group(2)))
-                        self.var_g.set(int(m.group(3)))
-                        applied += 1
-                elif key == "cpulevel" and val.isdigit():
-                    self.var_cpulevel.set(int(val))
-                    applied += 1
-                elif key == "gpulevel" and val.isdigit():
-                    self.var_gpulevel.set(int(val))
-                    applied += 1
-                elif key == "advanced_visual_release" and val.isdigit():
-                    self.var_advanced_visual_release.set(int(val))
-                    applied += 1
-                elif key == "rt_enable_templimit":
-                    self.var_temp_enable.set(val in ("1", "true", "True", "enabled", "on", "ON"))
-                    self._sync_temp_enabled_state()
-                    applied += 1
-                elif key == "rt_templimit_bottom" and val.isdigit():
-                    self.var_temp_bottom.set(val)
-                    applied += 1
-                elif key == "rt_templimit_ceiling" and val.isdigit():
-                    self.var_temp_ceiling.set(val)
-                    applied += 1
-                elif key == "miui_home_animation_rate":
-                    home_anim_reverse = {"0": "Relaxed", "1": "Balanced", "2": "Fast"}
-                    if val in home_anim_reverse:
-                        self.var_home_anim.set(home_anim_reverse[val])
-                        applied += 1
-                    elif val in ("Relaxed", "Balanced", "Fast"):
-                        self.var_home_anim.set(val)
-                        applied += 1
-                elif key == "task_stack_view_layout_style":
-                    if val in recents_style_reverse:
-                        self.var_recents_style.set(recents_style_reverse[val])
-                        applied += 1
-                    elif val in ("Vertically", "Horizontally", "Stacked"):
-                        self.var_recents_style.set(val)
-                        applied += 1
-                elif key == "background_blur_supported":
-                    vlow = val.lower()
-                    if vlow in ("1", "true", "enabled"):
-                        self.var_background_blur_supported.set("Enabled")
-                        applied += 1
-                    elif vlow in ("0", "false", "disabled"):
-                        self.var_background_blur_supported.set("Disabled")
-                        applied += 1
-
-            self._log(f"Loaded {applied} value(s) from: {path}", level="success")
+            self._log(f"Loaded settings from: {path}", level="success")
         except Exception as e:
             self._log(f"Load failed: {e}", level="error")
 
     def _refresh_current_settings_bg(self) -> None:
         assert self._device is not None
-        queries: list[tuple[str, str]] = [
-            ("window_animation_scale", "settings get global window_animation_scale"),
-            ("transition_animation_scale", "settings get global transition_animation_scale"),
-            ("animator_duration_scale", "settings get global animator_duration_scale"),
-            ("task_stack_view_layout_style", "settings get global task_stack_view_layout_style"),
-            ("deviceLevelList", "settings get system deviceLevelList"),
-            ("cpulevel", "getprop persist.sys.computility.cpulevel"),
-            ("gpulevel", "getprop persist.sys.computility.gpulevel"),
-            ("advanced_visual_release", "getprop persist.sys.advanced_visual_release"),
-            ("rt_enable_templimit", "settings get system rt_enable_templimit"),
-            ("rt_templimit_bottom", "settings get system rt_templimit_bottom"),
-            ("rt_templimit_ceiling", "settings get system rt_templimit_ceiling"),
-            ("miui_home_animation_rate", "settings get system miui_home_animation_rate"),
-            ("background_blur_supported", "getprop persist.sys.background_blur_supported"),
+        tables: list[tuple[str, str]] = [
+            ("system", "settings list system"),
+            ("secure", "settings list secure"),
+            ("global", "settings list global"),
+            ("props", 'getprop | grep -E "computility|miui_home|visual_release|blur"'),
         ]
-        self._log_async("Refreshing current settings from device...")
-        for key, cmd in queries:
-            val = self._device.shell(cmd).strip()
-            if not val:
-                val = "—"
-            self._ui_queue.put(("current", f"{key}={val}"))
+        self._log_async("Refreshing settings (system/secure/global) and props from device...")
+        for table, cmd in tables:
+            raw = self._device.shell(cmd) or ""
+            lines: list[str] = []
+            for line in raw.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                if table == "props":
+                    # Typical getprop line: [key]: [value]
+                    if line.startswith("[") and "]" in line:
+                        try:
+                            key_part, val_part = line.split("]:", 1)
+                            key = key_part.lstrip("[").strip()
+                            val = val_part.strip()
+                            if val.startswith("[") and val.endswith("]"):
+                                val = val[1:-1].strip()
+                            lines.append(f"{key} = {val}")
+                        except Exception:
+                            lines.append(line)
+                    else:
+                        lines.append(line)
+                else:
+                    if "=" in line:
+                        k, v = line.split("=", 1)
+                        lines.append(f"{k} = {v}")
+                    else:
+                        lines.append(line)
+            formatted = "\n".join(lines) or "No settings returned."
+            self._ui_queue.put((f"settings_{table}", formatted))
         self._log_async("Refresh complete.", level="success")
 
     # -------------------------
@@ -436,7 +426,161 @@ class HyperTweakApp:
             recents_style=bool(self.apply_recents_style.get()),
             background_blur_supported=bool(self.apply_background_blur_supported.get()),
         )
-        self._run_bg("apply", lambda: self._apply_settings_bg(payload, selection))
+        self._run_bg("apply", lambda: self._apply_with_snapshot_bg(payload, selection))
+
+    def _snapshot_advanced_settings_bg(self) -> dict[str, str]:
+        assert self._device is not None
+        snap: dict[str, str] = {}
+
+        def sh(cmd: str) -> str:
+            try:
+                return (self._device.shell(cmd) or "").strip()
+            except Exception:
+                return ""
+
+        # Animation scales (used by "Remove animations" quick toggle and current settings)
+        snap["window_animation_scale"] = sh("settings get global window_animation_scale")
+        snap["transition_animation_scale"] = sh("settings get global transition_animation_scale")
+        snap["animator_duration_scale"] = sh("settings get global animator_duration_scale")
+
+        snap["deviceLevelList"] = sh("settings get system deviceLevelList")
+        snap["cpulevel"] = sh("getprop persist.sys.computility.cpulevel")
+        snap["gpulevel"] = sh("getprop persist.sys.computility.gpulevel")
+        snap["advanced_visual_release"] = sh("getprop persist.sys.advanced_visual_release")
+        snap["rt_enable_templimit"] = sh("settings get system rt_enable_templimit")
+        snap["rt_templimit_bottom"] = sh("settings get system rt_templimit_bottom")
+        snap["rt_templimit_ceiling"] = sh("settings get system rt_templimit_ceiling")
+        snap["miui_home_animation_rate"] = sh("settings get system miui_home_animation_rate")
+        snap["task_stack_view_layout_style"] = sh(
+            "settings get global task_stack_view_layout_style"
+        )
+        snap["background_blur_supported"] = sh("getprop persist.sys.background_blur_supported")
+
+        # Infer current "Remove animations" state: consider disabled if all three scales are 0 / 0.0
+        try:
+            wa = snap.get("window_animation_scale", "").strip()
+            ta = snap.get("transition_animation_scale", "").strip()
+            aa = snap.get("animator_duration_scale", "").strip()
+            def _is_zero(x: str) -> bool:
+                return x in ("0", "0.0")
+            disabled_now = _is_zero(wa) and _is_zero(ta) and _is_zero(aa)
+            self._animations_disabled = disabled_now
+            self._ui_queue.put(
+                (
+                    "anim_btn_text",
+                    "Enable animations" if disabled_now else "Disable animations",
+                )
+            )
+        except Exception:
+            pass
+
+        return snap
+
+    def _payload_from_snapshot(self, snap: dict[str, str]) -> SettingsPayload:
+        v = c = g = 1
+        dvl = (snap.get("deviceLevelList") or "").strip()
+        m = re.search(r"v:(\d+)\s*,\s*c:(\d+)\s*[.,]\s*g:(\d+)", dvl)
+        if m:
+            try:
+                v = int(m.group(1))
+                c = int(m.group(2))
+                g = int(m.group(3))
+            except Exception:
+                pass
+
+        def as_int(key: str, default: int = 0) -> int:
+            raw = (snap.get(key) or "").strip()
+            return int(raw) if raw.isdigit() else default
+
+        def as_bool(key: str) -> bool:
+            raw = (snap.get(key) or "").strip().lower()
+            return raw in ("1", "true", "enabled", "on", "yes")
+
+        home_anim_reverse = {"0": "Relaxed", "1": "Balanced", "2": "Fast"}
+        home_raw = (snap.get("miui_home_animation_rate") or "").strip()
+        home = home_anim_reverse.get(home_raw, home_raw or "Balanced")
+
+        blur_raw = (snap.get("background_blur_supported") or "").strip().lower()
+        blur = "Enabled" if blur_raw in ("1", "true", "enabled", "on", "yes") else "Disabled"
+
+        return SettingsPayload(
+            v=v,
+            c=c,
+            g=g,
+            cpulevel=as_int("cpulevel", 3),
+            gpulevel=as_int("gpulevel", 3),
+            advanced_visual_release=as_int("advanced_visual_release", 1),
+            temp_limit_enabled=as_bool("rt_enable_templimit"),
+            temp_limit_bottom=as_int("rt_templimit_bottom", 35),
+            temp_limit_ceiling=as_int("rt_templimit_ceiling", 45),
+            miui_home_animation=home,
+            recents_style="Vertically",
+            background_blur_supported=blur,
+        )
+
+    def _apply_with_snapshot_bg(self, payload: SettingsPayload, selection: ApplySelection) -> None:
+        assert self._device is not None
+        self._log_async("Saving current Advanced Settings snapshot...")
+        self._previous_advanced_snapshot = self._snapshot_advanced_settings_bg()
+        self._previous_advanced_selection = selection
+        self._log_async("Snapshot saved.", level="success")
+        try:
+            self._apply_settings_bg(payload, selection)
+        finally:
+            if getattr(self, "_previous_advanced_snapshot", None):
+                self._ui_queue.put(("show_restore_previous", "1"))
+
+    def _populate_inputs_from_payload(self, payload: SettingsPayload) -> None:
+        self.var_v.set(int(payload.v))
+        self.var_c.set(int(payload.c))
+        self.var_g.set(int(payload.g))
+        self.var_cpulevel.set(int(payload.cpulevel))
+        self.var_gpulevel.set(int(payload.gpulevel))
+        self.var_advanced_visual_release.set(int(payload.advanced_visual_release))
+        self.var_temp_enable.set(bool(payload.temp_limit_enabled))
+        self.var_temp_bottom.set(str(payload.temp_limit_bottom))
+        self.var_temp_ceiling.set(str(payload.temp_limit_ceiling))
+        self.var_home_anim.set(str(payload.miui_home_animation))
+        self.var_background_blur_supported.set(str(payload.background_blur_supported))
+        self._sync_temp_enabled_state()
+        self._update_recents_style_buttons()
+
+    def restore_previous_settings(self) -> None:
+        if self._device is None:
+            self._log("No device connected. Click 'Connect Device' first.", level="error")
+            return
+        snap = getattr(self, "_previous_advanced_snapshot", None)
+        if not isinstance(snap, dict) or not snap:
+            self._log("No previous snapshot available yet.", level="error")
+            return
+        selection = getattr(self, "_previous_advanced_selection", None)
+        if not isinstance(selection, ApplySelection):
+            selection = ApplySelection(
+                device_level_list=True,
+                computility=True,
+                advanced_visual_release=True,
+                temp_limit=True,
+                miui_home_animation=True,
+                recents_style=False,
+                background_blur_supported=True,
+            )
+        payload = self._payload_from_snapshot(snap)
+        self._populate_inputs_from_payload(payload)
+        self._run_bg("restore_previous", lambda: self._restore_previous_bg(payload, selection))
+
+    def _restore_previous_bg(self, payload: SettingsPayload, selection: ApplySelection) -> None:
+        assert self._device is not None
+        cmds = build_shell_commands(payload, selection)
+        if not cmds:
+            self._log_async("Nothing to restore.", level="error")
+            return
+        self._log_async(f"Restoring {len(cmds)} command(s)...")
+        started = time.time()
+        for i, cmd in enumerate(cmds, start=1):
+            self._log_async(f"[{i}/{len(cmds)}] {cmd}")
+            self._device.shell(cmd)
+        elapsed_ms = int((time.time() - started) * 1000)
+        self._log_async(f"Restore done in {elapsed_ms} ms.", level="success")
 
     def _gather_payload(self) -> SettingsPayload:
         bottom = int(self.var_temp_bottom.get() or "0")
@@ -550,6 +694,27 @@ class HyperTweakApp:
         disable = not getattr(self, "_animations_disabled", False)
         self._run_bg("animations", lambda: self._toggle_animations_bg(disable))
 
+    def _update_recents_style_buttons(self) -> None:
+        style = getattr(self, "var_recents_style", None)
+        if style is None:
+            return
+        current = str(style.get() or "")
+        mapping = {
+            "Vertically": getattr(self, "btn_recents_vertical", None),
+            "Horizontally": getattr(self, "btn_recents_horizontal", None),
+            "Stacked": getattr(self, "btn_recents_stacked", None),
+        }
+        for name, btn in mapping.items():
+            if btn is None:
+                continue
+            try:
+                if name == current:
+                    btn.configure(style="success.TButton")
+                else:
+                    btn.configure(style="TButton")
+            except Exception:
+                pass
+
     def _toggle_animations_bg(self, disable: bool) -> None:
         assert self._device is not None
         value = "0" if disable else "1"
@@ -558,7 +723,6 @@ class HyperTweakApp:
             f"settings put global transition_animation_scale {value}",
             f"settings put global animator_duration_scale {value}",
         ]
-        self._append_console(f"Running {len(cmds)} command(s)...\n\n")
         errors: list[str] = []
 
         def run_one(c: str) -> None:
@@ -569,7 +733,6 @@ class HyperTweakApp:
 
         threads: list[threading.Thread] = []
         for c in cmds:
-            self._append_console(f"$ {c}\n")
             t = threading.Thread(target=run_one, args=(c,))
             threads.append(t)
             t.start()
@@ -580,10 +743,8 @@ class HyperTweakApp:
         self._ui_queue.put(("anim_btn_text", "Enable animations" if disable else "Disable animations"))
 
         if errors:
-            self._append_console("\nERRORS:\n" + "\n".join(errors) + "\n")
             self._log_async("Animation toggle completed with errors.", level="error")
         else:
-            self._append_console("\nDone.\n")
             self._log_async("Animation toggle applied.", level="success")
 
     def set_recents_style(self, style: str) -> None:
@@ -595,21 +756,17 @@ class HyperTweakApp:
             self._log(f"Unknown recents style: {style}", level="error")
             return
         self.var_recents_style.set(style)
+        self._update_recents_style_buttons()
         cmd = f"settings put global task_stack_view_layout_style {style_map[style]}"
         self._run_bg("recents_style", lambda: self._run_one_quick_cmd_bg(style, cmd))
 
     def _run_one_quick_cmd_bg(self, label: str, cmd: str) -> None:
         assert self._device is not None
-        self._append_console(f"$ {cmd}\n")
         try:
-            out = self._device.shell(cmd)
+            self._device.shell(cmd)
         except Exception as e:
-            self._append_console(f"ERROR: {e}\n")
             self._log_async(f"Recents style '{label}' failed.", level="error")
             return
-        out = (out or "").rstrip()
-        if out:
-            self._append_console(f"{out}\n")
         self._log_async(f"Recents style set: {label}", level="success")
 
     # -------------------------
@@ -642,6 +799,34 @@ class HyperTweakApp:
                         self.lbl_device.configure(text=f"Connected: {msg}")
                     elif kind == "auto_refresh":
                         self.refresh_current_settings()
+                    elif kind == "settings_system":
+                        txt = getattr(self, "txt_settings_system", None)
+                        if txt is not None:
+                            txt.configure(state="normal")
+                            txt.delete("1.0", "end")
+                            txt.insert("1.0", msg)
+                            txt.configure(state="disabled")
+                    elif kind == "settings_secure":
+                        txt = getattr(self, "txt_settings_secure", None)
+                        if txt is not None:
+                            txt.configure(state="normal")
+                            txt.delete("1.0", "end")
+                            txt.insert("1.0", msg)
+                            txt.configure(state="disabled")
+                    elif kind == "settings_global":
+                        txt = getattr(self, "txt_settings_global", None)
+                        if txt is not None:
+                            txt.configure(state="normal")
+                            txt.delete("1.0", "end")
+                            txt.insert("1.0", msg)
+                            txt.configure(state="disabled")
+                    elif kind == "settings_props":
+                        txt = getattr(self, "txt_settings_props", None)
+                        if txt is not None:
+                            txt.configure(state="normal")
+                            txt.delete("1.0", "end")
+                            txt.insert("1.0", msg)
+                            txt.configure(state="disabled")
                     elif kind == "current":
                         apply_current_kv(self, msg)
                     elif kind == "busy":
@@ -667,9 +852,17 @@ class HyperTweakApp:
                         self.txt_console.configure(state="normal")
                         self.txt_console.delete("1.0", "end")
                         self.txt_console.configure(state="disabled")
+                    elif kind == "show_restore_previous":
+                        try:
+                            self.btn_restore_previous.grid()
+                        except Exception:
+                            pass
                     elif kind == "anim_btn_text":
                         try:
-                            self.btn_toggle_animations.configure(text=msg)
+                            self.btn_toggle_animations.configure(
+                                text=msg,
+                                style=("success.TButton" if "Enable" in msg else "warning.TButton"),
+                            )
                         except Exception:
                             pass
             except queue.Empty:

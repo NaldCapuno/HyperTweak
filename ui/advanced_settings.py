@@ -1,5 +1,3 @@
-"""Advanced Settings section for HyperTweak."""
-
 from __future__ import annotations
 
 from tkinter import ttk
@@ -7,8 +5,10 @@ from typing import TYPE_CHECKING, Any
 
 from ui.shared import (
     add_combo,
+    add_label_with_tooltip,
+    add_tooltip,
     register_widget,
-    section_frame,
+    section_frame_with_tooltip,
     set_section_enabled,
     titled_section,
 )
@@ -18,8 +18,11 @@ if TYPE_CHECKING:
 
 
 def build_advanced_settings(parent: ttk.Widget, app: "HyperTweakApp", row: int) -> int:
-    """Build the Advanced Settings section with subsections. Returns next row."""
-    outer = section_frame(parent, "Advanced Settings")
+    outer = section_frame_with_tooltip(
+        parent,
+        "Advanced Settings",
+        "Restart your device for these changes to take effect.",
+    )
     outer.grid(row=row, column=0, sticky="ew", pady=(0, 8))
     outer.columnconfigure(0, weight=1)
     outer.columnconfigure(1, weight=0)
@@ -57,8 +60,8 @@ def _section_computility(parent: ttk.Widget, app: "HyperTweakApp", row: int) -> 
     lf, widgets = titled_section(parent, "Computility", app.apply_computility, app)
     lf.grid(row=row, column=0, sticky="ew", pady=(0, 8))
 
-    cpu_cb = add_combo(lf, "cpulevel", app.var_cpulevel, list(range(1, 7)), 0)
-    gpu_cb = add_combo(lf, "gpulevel", app.var_gpulevel, list(range(1, 7)), 1)
+    cpu_cb = add_combo(lf, "CPU Level", app.var_cpulevel, list(range(1, 7)), 0)
+    gpu_cb = add_combo(lf, "GPU Level", app.var_gpulevel, list(range(1, 7)), 1)
     register_widget(widgets, cpu_cb, "readonly")
     register_widget(widgets, gpu_cb, "readonly")
     set_section_enabled(widgets, bool(app.apply_computility.get()))
@@ -83,16 +86,32 @@ def _section_temp_limit(parent: ttk.Widget, app: "HyperTweakApp", row: int) -> i
     )
     lf.grid(row=row, column=0, sticky="ew", pady=(0, 8))
 
+    enable_frame = ttk.Frame(lf)
+    enable_frame.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
     chk = ttk.Checkbutton(
-        lf,
-        text="Enable",
+        enable_frame,
+        text="Enable Temp Limit",
         variable=app.var_temp_enable,
         command=app._sync_temp_enabled_state,
     )
-    chk.grid(row=0, column=0, sticky="w", columnspan=2, pady=(0, 8))
+    chk.pack(side="left")
+    lbl_enable_help = ttk.Label(enable_frame, text="?", cursor="question_arrow")
+    lbl_enable_help.pack(side="left", padx=(6, 0))
+    add_tooltip(
+        lbl_enable_help,
+        "When enabled, your custom Bottom and Ceiling values control thermal limits. "
+        "When disabled, the phone reverts to Xiaomi's factory throttling (often starts at 40°C).",
+    )
     register_widget(widgets, chk, "normal")
 
-    ttk.Label(lf, text="Bottom").grid(row=1, column=0, sticky="w", padx=(0, 10))
+    temp_note = " Some devices show values ×10 (e.g., 420 instead of 42); use the same scale when entering values."
+    add_label_with_tooltip(
+        lf,
+        "Bottom",
+        "Temperature at which the device can stop throttling and return to full speed." + temp_note,
+        1,
+        pady=(0, 0),
+    )
     app.ent_temp_bottom = ttk.Entry(
         lf,
         textvariable=app.var_temp_bottom,
@@ -104,7 +123,13 @@ def _section_temp_limit(parent: ttk.Widget, app: "HyperTweakApp", row: int) -> i
     app.ent_temp_bottom.grid(row=1, column=2, sticky="e")
     register_widget(widgets, app.ent_temp_bottom, "normal")
 
-    ttk.Label(lf, text="Ceiling").grid(row=2, column=0, sticky="w", pady=(6, 0), padx=(0, 10))
+    add_label_with_tooltip(
+        lf,
+        "Ceiling",
+        "Maximum temperature before the system throttles the CPU and GPU to prevent damage." + temp_note,
+        2,
+        pady=(6, 0),
+    )
     app.ent_temp_ceiling = ttk.Entry(
         lf,
         textvariable=app.var_temp_ceiling,
@@ -121,7 +146,13 @@ def _section_temp_limit(parent: ttk.Widget, app: "HyperTweakApp", row: int) -> i
 
 
 def _section_miui_home_animation(parent: ttk.Widget, app: "HyperTweakApp", row: int) -> int:
-    lf, widgets = titled_section(parent, "Animation", app.apply_miui_home_animation, app)
+    lf, widgets = titled_section(
+        parent,
+        "Animation",
+        app.apply_miui_home_animation,
+        app,
+        tooltip_text="Adjusts the speed of home screen and app launch animations.",
+    )
     lf.grid(row=row, column=0, sticky="ew", pady=(0, 8))
 
     anim_cb = add_combo(lf, "Animation", app.var_home_anim, ["Relaxed", "Balanced", "Fast"], 0)
@@ -132,7 +163,11 @@ def _section_miui_home_animation(parent: ttk.Widget, app: "HyperTweakApp", row: 
 
 def _section_background_blur_supported(parent: ttk.Widget, app: "HyperTweakApp", row: int) -> int:
     lf, widgets = titled_section(
-        parent, "Advanced Textures", app.apply_background_blur_supported, app
+        parent,
+        "Advanced Textures",
+        app.apply_background_blur_supported,
+        app,
+        tooltip_text="Turns on system-wide blur: control centre, folder backgrounds, and recents.",
     )
     lf.grid(row=row, column=0, sticky="ew", pady=(0, 8))
 
