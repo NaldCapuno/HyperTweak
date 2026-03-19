@@ -8,10 +8,16 @@
 
 ## Overview
 
-- **Current Device Settings** — Scrollable list of current values; Refresh / Save / Load.
-- **Quick Toggles** — Remove animations (on/off) and Recents style (Vertically / Horizontally / Stacked); commands run immediately.
-- **Advanced Settings** — Device Level List, Computility, Advanced Visual Release, Advanced Textures, Animation, Temp Limit; use **Apply Settings** and **Reboot** to push changes.
+- **Current Device Settings** — Tabs for `system`, `secure`, `global`, and `props` showing `key = value` pairs. Supports **Refresh**, **Save**, and **Load** of the full snapshot.
+- **Quick Toggles** — Remove animations (on/off) and Recents style (Vertically / Horizontally / Stacked). Uses the device’s current values and applies changes immediately.
+- **Advanced Settings** — Device Level List, Computility, Advanced Visual Release, Advanced Textures, Animation, Temp Limit. Use **Apply Settings** to push changes and **Restore previous settings** to revert the last apply.
 - **Command Console** — Run custom ADB shell commands.
+
+## Restore previous settings
+
+- When you click **Apply Settings**, HyperTweak first snapshots the current advanced-related values on the device.
+- A **Restore previous settings** button then appears in the footer.
+- Clicking it repopulates the Advanced Settings inputs from that snapshot and re-applies those values to the device (Quick Toggles are not affected).
 
 ## Command Console
 
