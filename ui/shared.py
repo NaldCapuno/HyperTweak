@@ -1,5 +1,3 @@
-"""Shared UI helpers for HyperTweak sections."""
-
 from __future__ import annotations
 
 import re
@@ -7,14 +5,69 @@ import tkinter as tk
 from tkinter import ttk
 from typing import TYPE_CHECKING, Any, Callable
 
+from ttkbootstrap.constants import INVERSE, SECONDARY
+from ttkbootstrap.widgets import ToolTip
+
 if TYPE_CHECKING:
     from main import HyperTweakApp
 
 
 def section_frame(parent: ttk.Widget, title: str) -> ttk.Labelframe:
-    """Create a simple labelframe with title."""
     lf = ttk.Labelframe(parent, text=title, padding=(12, 10, 12, 10))
     lf.columnconfigure(1, weight=1)
+    return lf
+
+
+def section_frame_with_tooltip(
+    parent: ttk.Widget, title: str, tooltip_text: str
+) -> ttk.Labelframe:
+    label_row = ttk.Frame(parent)
+    ttk.Label(label_row, text=title, font=("Segoe UI", 10, "bold")).pack(side="left")
+    lbl_help = ttk.Label(label_row, text="?", cursor="question_arrow")
+    lbl_help.pack(side="right", padx=(6, 0))
+    ToolTip(
+        lbl_help,
+        text=tooltip_text,
+        position="top right",
+        bootstyle=(SECONDARY, INVERSE),
+    )
+
+    lf = ttk.Labelframe(parent, padding=(12, 10, 12, 10), labelwidget=label_row)
+    lf.columnconfigure(1, weight=1)
+    return lf
+
+
+def add_tooltip(widget: ttk.Widget, text: str) -> None:
+    ToolTip(
+        widget,
+        text=text,
+        position="top right",
+        bootstyle=(SECONDARY, INVERSE),
+    )
+
+
+def add_label_with_tooltip(
+    parent: ttk.Widget, label_text: str, tooltip_text: str, row: int, pady: tuple[int, int] = (0, 0)
+) -> None:
+    label_frame = ttk.Frame(parent)
+    label_frame.grid(row=row, column=0, sticky="w", pady=pady, padx=(0, 10))
+    ttk.Label(label_frame, text=label_text).pack(side="left")
+    lbl_help = ttk.Label(label_frame, text="?", cursor="question_arrow")
+    lbl_help.pack(side="left", padx=(6, 0))
+    add_tooltip(lbl_help, tooltip_text)
+
+
+def labelframe_with_tooltip_icon(
+    parent: ttk.Widget, title: str, tooltip_text: str, padding: tuple[int, int, int, int] = (10, 8, 10, 10)
+) -> ttk.Labelframe:
+    label_row = ttk.Frame(parent)
+    ttk.Label(label_row, text=title, font=("Segoe UI", 10, "bold")).pack(side="left")
+    lbl_help = ttk.Label(label_row, text="?", cursor="question_arrow")
+    lbl_help.pack(side="right", padx=(6, 0))
+    add_tooltip(lbl_help, tooltip_text)
+
+    lf = ttk.Labelframe(parent, padding=padding, labelwidget=label_row)
+    lf.columnconfigure(0, weight=1)
     return lf
 
 
@@ -24,8 +77,8 @@ def titled_section(
     enabled_var: tk.BooleanVar,
     app: HyperTweakApp,
     after_toggle: Callable[[], None] | None = None,
+    tooltip_text: str | None = None,
 ) -> tuple[ttk.Labelframe, list[tuple[ttk.Widget, str]]]:
-    """Create a labelframe with checkbox and title; returns (frame, widgets list)."""
     lf = ttk.Labelframe(parent, padding=(12, 10, 12, 10))
     lf.grid_columnconfigure(1, weight=1)
 
@@ -33,6 +86,10 @@ def titled_section(
     chk = ttk.Checkbutton(label, variable=enabled_var, text="")
     chk.pack(side="left", padx=(0, 6))
     ttk.Label(label, text=title, font=("Segoe UI", 10, "bold")).pack(side="left")
+    if tooltip_text:
+        lbl_help = ttk.Label(label, text="?", cursor="question_arrow")
+        lbl_help.pack(side="right", padx=(6, 0))
+        add_tooltip(lbl_help, tooltip_text)
     lf.configure(labelwidget=label)
 
     widgets: list[tuple[ttk.Widget, str]] = []
@@ -49,12 +106,10 @@ def titled_section(
 def register_widget(
     widgets: list[tuple[ttk.Widget, str]], widget: ttk.Widget, enabled_state: str
 ) -> None:
-    """Register a widget for enable/disable toggling."""
     widgets.append((widget, enabled_state))
 
 
 def set_section_enabled(widgets: list[tuple[ttk.Widget, str]], enabled: bool) -> None:
-    """Enable or disable all registered widgets in a section."""
     for w, enabled_state in widgets:
         try:
             w.configure(state=(enabled_state if enabled else "disabled"))
@@ -68,11 +123,21 @@ def add_combo(
     var: tk.Variable,
     values: list[Any],
     r: int,
+    tooltip_text: str | None = None,
 ) -> ttk.Combobox:
-    """Add a label + combobox row to parent."""
-    ttk.Label(parent, text=label).grid(
-        row=r, column=0, sticky="w", pady=(0 if r == 0 else 6, 0), padx=(0, 10)
-    )
+    pady = (0 if r == 0 else 6, 0)
+    padx = (0, 10)
+    if tooltip_text:
+        label_frame = ttk.Frame(parent)
+        label_frame.grid(row=r, column=0, sticky="w", pady=pady, padx=padx)
+        ttk.Label(label_frame, text=label).pack(side="left")
+        lbl_help = ttk.Label(label_frame, text="?", cursor="question_arrow")
+        lbl_help.pack(side="left", padx=(6, 0))
+        add_tooltip(lbl_help, tooltip_text)
+    else:
+        ttk.Label(parent, text=label).grid(
+            row=r, column=0, sticky="w", pady=pady, padx=padx
+        )
     cb = ttk.Combobox(parent, textvariable=var, values=values, state="readonly", width=18)
     cb.configure(bootstyle="secondary")
     cb.grid(row=r, column=2, sticky="e", pady=(0 if r == 0 else 6, 0))
@@ -80,7 +145,6 @@ def add_combo(
 
 
 def apply_current_kv(app: HyperTweakApp, kv: str) -> None:
-    """Apply a key=value from device refresh to app state."""
     if "=" not in kv:
         return
     key, val = kv.split("=", 1)
@@ -141,6 +205,9 @@ def apply_current_kv(app: HyperTweakApp, kv: str) -> None:
             app.var_recents_style.set(recents_style_reverse[val])
         elif val in ("Vertically", "Horizontally", "Stacked"):
             app.var_recents_style.set(val)
+        updater = getattr(app, "_update_recents_style_buttons", None)
+        if callable(updater):
+            updater()
     elif key == "background_blur_supported":
         vlow = val.lower()
         if vlow in ("1", "true", "enabled"):

@@ -1,5 +1,3 @@
-"""UI modules for HyperTweak."""
-
 from ui.current_device_settings import build_current_device_settings
 from ui.quick_toggles import build_quick_toggles
 from ui.advanced_settings import build_advanced_settings

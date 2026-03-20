@@ -1,25 +1,30 @@
-"""Quick Toggles section for HyperTweak."""
-
 from __future__ import annotations
 
 from tkinter import ttk
 
 from typing import TYPE_CHECKING
 
-from ui.shared import section_frame
+from ui.shared import labelframe_with_tooltip_icon, section_frame_with_tooltip
 
 if TYPE_CHECKING:
     from main import HyperTweakApp
 
 
 def build_quick_toggles(parent: ttk.Widget, app: "HyperTweakApp", row: int) -> int:
-    """Build the Quick Toggles section. Returns next row."""
-    lf = section_frame(parent, "Quick Toggles")
+    lf = section_frame_with_tooltip(
+        parent,
+        "Quick Toggles",
+        "Applies settings instantly without restarting the device.",
+    )
     lf.grid(row=row, column=0, sticky="ew", pady=(0, 8))
     lf.columnconfigure(0, weight=1)
     lf.columnconfigure(1, weight=0)
 
-    anim_box = ttk.Labelframe(lf, text="Remove animations", padding=(10, 8, 10, 10))
+    anim_box = labelframe_with_tooltip_icon(
+        lf,
+        "Remove animations",
+        "Reduces some animations. Control centre and recents animations remain.",
+    )
     anim_box.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
     anim_box.columnconfigure(0, weight=1)
 
@@ -32,7 +37,11 @@ def build_quick_toggles(parent: ttk.Widget, app: "HyperTweakApp", row: int) -> i
     )
     app.btn_toggle_animations.grid(row=0, column=0, sticky="ew")
 
-    rec_box = ttk.Labelframe(lf, text="Recents style", padding=(10, 8, 10, 10))
+    rec_box = labelframe_with_tooltip_icon(
+        lf,
+        "Recents style",
+        "Stacked layout requires the latest system launcher version.",
+    )
     rec_box.grid(row=1, column=0, columnspan=2, sticky="ew")
     for i in range(3):
         rec_box.columnconfigure(i, weight=1)
