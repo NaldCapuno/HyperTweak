@@ -14,14 +14,15 @@
   > The `ro.surface_flinger.supports_background_blur` property tells Android whether the GPU is capable of rendering system blur.
 
 - **Quick Toggles** — Remove animations (on/off) and Recents style (Vertically / Horizontally / Stacked). Uses the device’s current values and applies changes immediately.
-- **Advanced Settings** — Device Level List, Computility, Advanced Visual Release, Advanced Textures, Animation, Temp Limit. Use **Apply Settings** to push changes and **Restore previous settings** to revert the last apply.
+- **Advanced Settings** — Device Level List, Computility, Advanced Visual Release, Advanced Textures, Animation, Temp Limit. Use **Apply Settings** to push changes, **Restore previous settings** to revert the last apply, and **View previous settings** to inspect it.
 - **Command Console** — Run custom ADB shell commands.
 
 ## Restore previous settings
 
 - When you click **Apply Settings**, HyperTweak first snapshots the current advanced-related values on the device.
-- A **Restore previous settings** button then appears in the footer.
+- A **Restore previous settings** button then appears in the footer (along with **View previous settings**).
 - Clicking it repopulates the Advanced Settings inputs from that snapshot and re-applies those values to the device (Quick Toggles are not affected).
+- **View previous settings** opens a dialog that shows the saved advanced settings snapshot (read-only), so you can review what will be restored.
 
 ## Command Console
 

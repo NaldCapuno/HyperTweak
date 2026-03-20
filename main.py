@@ -99,17 +99,29 @@ class HyperTweakApp:
 
         btns = ttk.Frame(footer)
         btns.grid(row=0, column=0, sticky="ew")
-        btns.columnconfigure(0, weight=1)
+        btns.columnconfigure(0, weight=0)
+        btns.columnconfigure(1, weight=0)
+        btns.columnconfigure(2, weight=1)
 
         self.btn_restore_previous = ttk.Button(
             btns,
             text="Restore previous settings",
             command=self.restore_previous_settings,
             style="secondary.TButton",
-            width=24,
+            width=22,
         )
         self.btn_restore_previous.grid(row=0, column=0, sticky="w")
         self.btn_restore_previous.grid_remove()
+
+        self.btn_view_previous = ttk.Button(
+            btns,
+            text="View previous settings",
+            command=self.view_previous_settings,
+            style="secondary.TButton",
+            width=20,
+        )
+        self.btn_view_previous.grid(row=0, column=1, sticky="w", padx=(8, 0))
+        self.btn_view_previous.grid_remove()
 
         self.btn_apply = ttk.Button(
             btns,
@@ -118,7 +130,7 @@ class HyperTweakApp:
             style="success.TButton",
             width=18,
         )
-        self.btn_apply.grid(row=0, column=1, sticky="e")
+        self.btn_apply.grid(row=0, column=2, sticky="e")
 
         self.btn_reboot = ttk.Button(
             btns,
@@ -127,7 +139,7 @@ class HyperTweakApp:
             style="danger.TButton",
             width=10,
         )
-        self.btn_reboot.grid(row=0, column=2, sticky="e", padx=(10, 0))
+        self.btn_reboot.grid(row=0, column=3, sticky="e", padx=(10, 0))
 
         right_wrap = ttk.Frame(self.root, padding=(10, 8, 14, 10), width=360)
         right_wrap.grid(row=1, column=1, sticky="nsew")
@@ -568,6 +580,142 @@ class HyperTweakApp:
         self._populate_inputs_from_payload(payload)
         self._run_bg("restore_previous", lambda: self._restore_previous_bg(payload, selection))
 
+    def view_previous_settings(self) -> None:
+        if self._device is None:
+            self._log("No device connected. Click 'Connect Device' first.", level="error")
+            return
+        snap = getattr(self, "_previous_advanced_snapshot", None)
+        if not isinstance(snap, dict) or not snap:
+            self._log("No previous snapshot available yet.", level="error")
+            return
+
+        excluded_keys = {
+            "window_animation_scale",
+            "transition_animation_scale",
+            "animator_duration_scale",
+            "task_stack_view_layout_style",
+        }
+
+        # Only show sections that were actually applied in the last operation.
+        prev_selection = getattr(self, "_previous_advanced_selection", None)
+        if not isinstance(prev_selection, ApplySelection):
+            prev_selection = ApplySelection(
+                device_level_list=True,
+                computility=True,
+                advanced_visual_release=True,
+                temp_limit=True,
+                miui_home_animation=True,
+                recents_style=False,
+                background_blur_supported=True,
+            )
+
+        include_device_levels = bool(prev_selection.device_level_list)
+        include_computility = bool(prev_selection.computility)
+        include_advanced_visual_release = bool(prev_selection.advanced_visual_release)
+        include_background_blur_supported = bool(prev_selection.background_blur_supported)
+        include_miui_home_animation = bool(prev_selection.miui_home_animation)
+        include_temp_limit = bool(prev_selection.temp_limit)
+        
+        lines = []
+
+        # Device Level List
+        if include_device_levels:
+            dvl = str(snap.get("deviceLevelList", "")).strip()
+            m = re.search(r"v:(\d+)\s*,\s*c:(\d+)\s*[.,]\s*g:(\d+)", dvl)
+            if m:
+                lines.extend(
+                    [
+                        "Device Level List",
+                        f"v = {m.group(1)}",
+                        f"c = {m.group(2)}",
+                        f"g = {m.group(3)}",
+                        "",
+                    ]
+                )
+            else:
+                # Fallback: show the raw combined string as-is.
+                if dvl and "deviceLevelList" not in excluded_keys:
+                    lines.extend(
+                        ["Device Level List", f"deviceLevelList = {dvl}", ""]
+                    )
+
+        # Computility
+        if include_computility:
+            lines.append("Computility")
+            if "cpulevel" in snap and "cpulevel" not in excluded_keys:
+                lines.append(f"CPU Level = {snap.get('cpulevel')}")
+            if "gpulevel" in snap and "gpulevel" not in excluded_keys:
+                lines.append(f"GPU Level = {snap.get('gpulevel')}")
+            lines.append("")
+
+        # Advanced Visual Release
+        if include_advanced_visual_release:
+            lines.append("Advanced Visual Release")
+            if (
+                "advanced_visual_release" in snap
+                and "advanced_visual_release" not in excluded_keys
+            ):
+                lines.append(
+                    f"Advanced Visual Release = {snap.get('advanced_visual_release')}"
+                )
+            lines.append("")
+
+        # Advanced Textures
+        if include_background_blur_supported:
+            lines.append("Advanced Textures")
+            blur_raw = str(snap.get("background_blur_supported", "")).strip().lower()
+            blur = "Enabled" if blur_raw in ("1", "true", "enabled", "on", "yes") else "Disabled"
+            if (
+                "background_blur_supported" in snap
+                and "background_blur_supported" not in excluded_keys
+            ):
+                lines.append(f"Advanced Textures = {blur}")
+            lines.append("")
+
+        # Animation
+        if include_miui_home_animation:
+            lines.append("Animation")
+            home_anim_reverse = {"0": "Relaxed", "1": "Balanced", "2": "Fast"}
+            home_raw = str(snap.get("miui_home_animation_rate", "")).strip()
+            home_label = home_anim_reverse.get(home_raw, home_raw or "Balanced")
+            if (
+                "miui_home_animation_rate" in snap
+                and "miui_home_animation_rate" not in excluded_keys
+            ):
+                lines.append(f"Animation = {home_label}")
+            lines.append("")
+
+        # Temp Limit
+        if include_temp_limit:
+            lines.append("Temp Limit")
+            temp_enabled = str(snap.get("rt_enable_templimit", "")).strip()
+            if "rt_enable_templimit" in snap and "rt_enable_templimit" not in excluded_keys:
+                lines.append(f"Enable Temp Limit = {temp_enabled}")
+            if "rt_templimit_bottom" in snap and "rt_templimit_bottom" not in excluded_keys:
+                lines.append(f"Bottom = {snap.get('rt_templimit_bottom')}")
+            if "rt_templimit_ceiling" in snap and "rt_templimit_ceiling" not in excluded_keys:
+                lines.append(f"Ceiling = {snap.get('rt_templimit_ceiling')}")
+
+        text = "\n".join(lines)
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("View previous settings")
+        dialog.geometry("400x420")
+        dialog.resizable(False, False)
+
+        txt = tk.Text(
+            dialog,
+            wrap="word",
+            bg="#0e1116",
+            fg="#e7eaf0",
+            insertbackground="#e7eaf0",
+            relief="flat",
+            font=("Consolas", 9),
+        )
+        txt.pack(fill="both", expand=True, padx=10, pady=10)
+        txt.insert("1.0", text)
+        txt.configure(state="disabled")
+
     def _restore_previous_bg(self, payload: SettingsPayload, selection: ApplySelection) -> None:
         assert self._device is not None
         cmds = build_shell_commands(payload, selection)
@@ -840,6 +988,8 @@ class HyperTweakApp:
                             getattr(self, "btn_recents_vertical", None),
                             getattr(self, "btn_recents_horizontal", None),
                             getattr(self, "btn_recents_stacked", None),
+                            getattr(self, "btn_restore_previous", None),
+                            getattr(self, "btn_view_previous", None),
                         ):
                             if btn is not None:
                                 try:
@@ -854,7 +1004,8 @@ class HyperTweakApp:
                         self.txt_console.configure(state="disabled")
                     elif kind == "show_restore_previous":
                         try:
-                            self.btn_restore_previous.grid()
+                            self.btn_restore_previous.grid(row=0, column=0, sticky="w")
+                            self.btn_view_previous.grid(row=0, column=1, sticky="w", padx=(8, 0))
                         except Exception:
                             pass
                     elif kind == "anim_btn_text":
