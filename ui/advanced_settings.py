@@ -43,7 +43,16 @@ def build_advanced_settings(parent: ttk.Widget, app: "HyperTweakApp", row: int) 
 
 
 def _section_device_levels(parent: ttk.Widget, app: "HyperTweakApp", row: int) -> int:
-    lf, widgets = titled_section(parent, "Device Level List", app.apply_device_level_list, app)
+    lf, widgets = titled_section(
+        parent,
+        "Device Level List",
+        app.apply_device_level_list,
+        app,
+        tooltip_text=(
+            'Adjusts the system\'s "Visual Tier" to toggle high-end effects; '
+            "setting v:1, c:3, g:3 typically unlocks folder and recents blur"
+        ),
+    )
     lf.grid(row=row, column=0, sticky="ew", pady=(0, 8))
 
     v_cb = add_combo(lf, "v", app.var_v, [1, 2, 3], 0)
@@ -57,7 +66,16 @@ def _section_device_levels(parent: ttk.Widget, app: "HyperTweakApp", row: int) -
 
 
 def _section_computility(parent: ttk.Widget, app: "HyperTweakApp", row: int) -> int:
-    lf, widgets = titled_section(parent, "Computility", app.apply_computility, app)
+    lf, widgets = titled_section(
+        parent,
+        "Computility",
+        app.apply_computility,
+        app,
+        tooltip_text=(
+            'Defines the performance profile for the UI engine. Higher values "trick" HyperOS into '
+            "thinking you have flagship hardware, unlocking smoother physics and complex textures."
+        ),
+    )
     lf.grid(row=row, column=0, sticky="ew", pady=(0, 8))
 
     cpu_cb = add_combo(lf, "CPU Level", app.var_cpulevel, list(range(1, 7)), 0)

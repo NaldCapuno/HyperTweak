@@ -40,7 +40,7 @@ def build_quick_toggles(parent: ttk.Widget, app: "HyperTweakApp", row: int) -> i
     rec_box = labelframe_with_tooltip_icon(
         lf,
         "Recents style",
-        "Stacked layout requires the latest system launcher version.",
+        "Changes the style of the recents view. Stacked layout requires the latest system launcher version.",
     )
     rec_box.grid(row=1, column=0, columnspan=2, sticky="ew")
     for i in range(3):
