@@ -21,7 +21,7 @@ def build_current_device_settings(parent: ttk.Widget, app: "HyperTweakApp", row:
     btns.grid(row=0, column=0, sticky="ew", pady=(0, 8))
     btns.columnconfigure(0, weight=1)
 
-    ttk.Button(btns, text="Refresh from Device", command=app.refresh_current_settings).grid(
+    ttk.Button(btns, text="Refresh", command=app.refresh_current_settings).grid(
         row=0, column=0, sticky="w"
     )
     ttk.Button(btns, text="Save", command=app.save_current_settings).grid(
@@ -30,6 +30,9 @@ def build_current_device_settings(parent: ttk.Widget, app: "HyperTweakApp", row:
     ttk.Button(btns, text="Load", command=app.load_current_settings).grid(
         row=0, column=2, sticky="e", padx=(10, 0)
     )
+    ttk.Button(btns, text="Apply", style="success.TButton", command=app.apply_loaded_diff).grid(
+    row=0, column=3, sticky="e", padx=(10, 0)
+)
 
     notebook = ttk.Notebook(lf)
     notebook.grid(row=1, column=0, sticky="nsew")

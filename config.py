@@ -31,6 +31,14 @@ class ApplySelection:
     background_blur_supported: bool
 
 
+def get_mqsas_command(prop: str, value: str) -> str:
+    return (
+        f'service call miui.mqsas.IMQSNative 21 '
+        f'i32 1 s16 "setprop" i32 1 '
+        f's16 "{prop} {value}" '
+        f's16 "/storage/emulated/0/log.txt" i32 600'
+    )
+
 def build_shell_commands(payload: SettingsPayload, selection: ApplySelection) -> list[str]:
     def put(key: str, value: Any) -> str:
         return f"settings put system {key} {value}"

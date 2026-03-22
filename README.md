@@ -8,7 +8,7 @@
 
 ## Overview
 
-- **Current Device Settings** — Tabs for `system`, `secure`, `global`, and `props` showing `key = value` pairs. Supports **Refresh**, **Save**, and **Load** of the full snapshot.
+- **Current Device Settings** — Tabs for `system`, `secure`, `global`, and `props` showing `key = value` pairs. Supports **Refresh**, **Save**, **Load**, and **Apply** which automatically identifies differences between the file and your device.
 
   > **Note (props tab):**  
   > The `ro.surface_flinger.supports_background_blur` property tells Android whether the GPU is capable of rendering system blur.

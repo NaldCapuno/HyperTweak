@@ -28,8 +28,24 @@ from ui import (
 )
 from ui.shared import apply_current_kv
 
-
 class HyperTweakApp:
+    IGNORED_KEYS = {
+        "boot_count", "Phenotype_boot_count", "batterystats_reset_time", 
+        "last_update", "FBO_UPLOAD_TIME", "pc_security_center_last_fully_charge_time",
+        "start_time_of_self_detection", "freeform_timestamps", "network_watchlist_last_report_time",
+        "key_persist_cumulative_playback_ms", "key_persist_notification_date", "pay_session_id",
+        "screen_brightness", "screen_brightness_mode", "next_alarm_formatted", "is_custom_shortcut_effective",
+        "volume_music_headset", "volume_voice_headset", "volume_voice_speaker", "should_filter_toolbox",
+        "last_change_dual_clock_enable", "key_garbage_danger_in_size", "key_garbage_deepclean_size",
+        "key_garbage_installed_app_count", "key_garbage_normal_size", "key_garbage_not_used_app_count",
+        "key_score_in_security", "key_minus_score_in_security_exclude_virus", "update_uidlist_to_sla",
+        "constant_lockscreen_info", "KEY_FBO_DATA", "FBO_UPLOAD_LIST", "sidebar_bounds",
+        "LAST_INIT_POSITION", "am_show_system_apps", "enabled_input_methods", "media_button_receiver",
+        "provision_immersive_enable", "restart_nap_after_start", "xspace_enabled", "5g_icon_group_mode0",
+        "adb_allowed_connection_time", "is_timeout_for_settings_search", "private_dns_mode", 
+        "xiaomi_mi_play_last_playing_package_name"
+    }
+
     def __init__(self) -> None:
         self.root = tb.Window(themename="darkly")
         self.root.title("HyperTweak")
@@ -378,8 +394,60 @@ class HyperTweakApp:
                 txt.configure(state="disabled")
 
             self._log(f"Loaded settings from: {path}", level="success")
+
+            if self._device:
+                self._run_bg("auto_diff", lambda: self._check_diff_only_bg(values))
+            else:
+                self._log("Connect a device to see differences between file and device.", level="error")
+
         except Exception as e:
             self._log(f"Load failed: {e}", level="error")
+
+    def _check_diff_only_bg(self, loaded_values: dict[str, str]) -> None:
+        assert self._device is not None
+        self._log_async("Comparing loaded file with device state...")
+        
+        diff_count = 0
+        namespaces = ["system", "secure", "global"]
+        
+        for ns in namespaces:
+            if ns not in loaded_values: continue
+            
+            raw_live = self._device.shell(f"settings list {ns}") or ""
+            live_map = {}
+            for line in raw_live.splitlines():
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    live_map[k.strip()] = v.strip()
+
+            for line in loaded_values[ns].splitlines():
+                if " = " in line:
+                    k, v = line.split(" = ", 1)
+                    k, v = k.strip(), v.strip()
+
+                    if k in self.IGNORED_KEYS:
+                       continue
+                    
+                    live_val = live_map.get(k)
+                    if live_val != v:
+                        self._log_async(f"[DIFF] {ns} -> {k}: Device is '{live_val}', File is '{v}'")
+                        diff_count += 1
+
+        if "props" in loaded_values:
+            for line in loaded_values["props"].splitlines():
+                if " = " in line:
+                    k, v = [x.strip() for x in line.split(" = ", 1)]
+                    if k in self.IGNORED_KEYS: continue
+                    
+                    live_prop = self._device.shell(f"getprop {k}").strip()
+                    if live_prop != v:
+                        self._log_async(f"[DIFF] props -> {k}: Device is '{live_prop}', File is '{v}'")
+                        diff_count += 1
+
+        if diff_count > 0:
+            self._log_async(f"Found {diff_count} differences. Click 'Apply Loaded' to sync.", level="info")
+        else:
+            self._log_async("Device is already perfectly in sync with this file.", level="success")
 
     def _refresh_current_settings_bg(self) -> None:
         assert self._device is not None
@@ -424,6 +492,133 @@ class HyperTweakApp:
     # -------------------------
     # Apply Settings
     # -------------------------
+    def apply_loaded_diff(self) -> None:
+        if self._device is None:
+            self._log("No device connected. Click 'Connect Device' first.", level="error")
+            return
+        
+        target_data = self._current_snapshot()
+        self._run_bg("gather_diffs", lambda: self._gather_diffs_for_ui(target_data))
+
+    def _gather_diffs_for_ui(self, target_data: dict[str, str]) -> None:
+        assert self._device is not None
+        diff_list = []
+        namespaces = ["system", "secure", "global"]
+
+        for ns in namespaces:
+            if ns not in target_data: 
+                continue
+                
+            raw_live = self._device.shell(f"settings list {ns}") or ""
+            live_map = {}
+            for line in raw_live.splitlines():
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    live_map[k.strip()] = v.strip()
+
+            for line in target_data[ns].splitlines():
+                if " = " in line:
+                    parts = [x.strip() for x in line.split(" = ", 1)]
+                    if len(parts) < 2: continue
+                    k, v = parts[0], parts[1]
+                    
+                    if k in self.IGNORED_KEYS: 
+                        continue
+                    
+                    live_val = live_map.get(k)
+                    
+                    if live_val != v:
+                        diff_list.append((ns, k, live_val, v))
+
+        if "props" in target_data:
+            self._log_async("Verifying system properties...")
+            for line in target_data["props"].splitlines():
+                if " = " in line:
+                    k, v = [x.strip() for x in line.split(" = ", 1)]
+                    
+                    if k in self.IGNORED_KEYS:
+                        continue
+                        
+                    live_prop = self._device.shell(f"getprop {k}").strip()
+                    
+                    if live_prop != v:
+                        diff_list.append(("props", k, live_prop, v))
+
+        if not diff_list:
+            self._log_async("No significant differences found to apply.", level="success")
+            return
+
+        from ui.diff_selector import DiffSelectionWindow
+        self.root.after(0, lambda: DiffSelectionWindow(self.root, diff_list, self._apply_selected_items))
+
+    def _apply_selected_items(self, selected_items: list[tuple[str, str, str, str]]) -> None:
+        self._run_bg("apply_selected", lambda: self._apply_selected_bg(selected_items))
+
+    def _apply_selected_bg(self, items: list[tuple[str, str, str, str]]) -> None:
+        assert self._device is not None
+        from config import get_mqsas_command
+        
+        self._log_async(f"Applying {len(items)} selected change(s)...")
+        started = time.time()
+        
+        for ns, k, _, v in items:
+            try:
+                if ns == "props":
+                    self._device.shell(get_mqsas_command(k, v))
+                else:
+                    self._device.shell(f"settings put {ns} {k} {v}")
+                
+                self._log_async(f"[OK] {ns} -> {k} = {v}")
+            except Exception as e:
+                self._log_async(f"[!] Failed to apply {k}: {e}", level="error")
+
+        elapsed_ms = int((time.time() - started) * 1000)
+        self._log_async(f"Apply complete in {elapsed_ms} ms.", level="success")
+        if any(item[0] == "props" for item in items):
+            self._log_async("Note: Some property changes require a reboot to take effect.")
+
+    def _apply_diff_bg(self, target_data: dict[str, str]) -> None:
+        assert self._device is not None
+        self._log_async("Starting Smart Sync (comparing differences)...")
+        
+        changes_count = 0
+        namespaces = ["system", "secure", "global"]
+        
+        for ns in namespaces:
+            if ns not in target_data: continue
+            
+            raw_live = self._device.shell(f"settings list {ns}") or ""
+            live_map = {}
+            for line in raw_live.splitlines():
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    live_map[k.strip()] = v.strip()
+
+            for line in target_data[ns].splitlines():
+                if " = " in line:
+                    k, v = line.split(" = ", 1)
+                    k, v = k.strip(), v.strip()
+                    
+                    if live_map.get(k) != v:
+                        self._log_async(f"Updating {ns}: {k} = {v}")
+                        self._device.shell(f"settings put {ns} {k} {v}")
+                        changes_count += 1
+
+        if "props" in target_data:
+            for line in target_data["props"].splitlines():
+                if " = " in line:
+                    k, v = line.split(" = ", 1)
+                    k, v = k.strip(), v.strip()
+
+                    from config import get_mqsas_command
+                    self._device.shell(get_mqsas_command(k, v))
+                    changes_count += 1
+
+        if changes_count > 0:
+            self._log_async(f"Smart Sync complete. Applied {changes_count} changes.", level="success")
+        else:
+            self._log_async("No differences found. Device is already in sync.", level="success")
+
     def apply_settings(self) -> None:
         if self._device is None:
             self._log("No device connected. Click 'Connect Device' first.", level="error")
