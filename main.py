@@ -16,7 +16,7 @@ from ttkbootstrap.widgets.scrolled import ScrolledFrame
 try:
     from ppadb.client import Client as AdbClient
 except Exception:
-    AdbClient = None  # type: ignore[misc,assignment]
+    AdbClient = None
 
 import adb
 from config import ApplySelection, SettingsPayload, build_shell_commands
@@ -56,6 +56,7 @@ class HyperTweakApp:
         self._adb_client: Any | None = None
         self._device: Any | None = None
         self._device_name: str | None = None
+        self._search_settings_after_id: str | None = None
 
         self._build_ui()
         self._start_queue_poller()
@@ -106,8 +107,11 @@ class HyperTweakApp:
 
         r = 0
         r = build_current_device_settings(content, self, r)
+        self._install_current_device_settings_wheel_fix()
         r = build_quick_toggles(content, self, r)
         r = build_advanced_settings(content, self, r)
+        self._boost_left_panel_wheel_speed()
+        self._install_left_panel_wheel_reapply()
 
         footer = ttk.Frame(self.root, padding=(14, 6, 14, 8))
         footer.grid(row=2, column=0, columnspan=2, sticky="ew")
@@ -198,6 +202,145 @@ class HyperTweakApp:
 
         self._log("Ready. Connect a device via USB debugging.")
         self._append_console("Console ready.\n")
+        self.root.after_idle(self._run_search_settings_refresh)
+
+    def _install_current_device_settings_wheel_fix(self) -> None:
+        wheel_unit_multiplier = 3
+
+        def _scroll_widget(widget: Any, units: int) -> str:
+            try:
+                widget.yview_scroll(units * wheel_unit_multiplier, "units")
+            except Exception:
+                pass
+            return "break"
+
+        def _on_mousewheel(e: Any) -> str:
+            w = getattr(e, "widget", None)
+            delta = int(getattr(e, "delta", 0) or 0)
+            if w is None or delta == 0:
+                return "break"
+            steps = max(1, int(abs(delta) / 120))
+            units = -steps if delta > 0 else steps
+            return _scroll_widget(w, units)
+
+        def _on_button4(e: Any) -> str:
+            w = getattr(e, "widget", None)
+            return _scroll_widget(w, -1) if w is not None else "break"
+
+        def _on_button5(e: Any) -> str:
+            w = getattr(e, "widget", None)
+            return _scroll_widget(w, 1) if w is not None else "break"
+
+        self.root.bind_class("HyperTweakSettingsText", "<MouseWheel>", _on_mousewheel, add="+")
+        self.root.bind_class("HyperTweakSettingsText", "<Button-4>", _on_button4, add="+")
+        self.root.bind_class("HyperTweakSettingsText", "<Button-5>", _on_button5, add="+")
+
+        def _scroll_from_scrollbar_event(e: Any, units: int) -> str:
+            mapping = getattr(self, "current_settings_scroll_target_by_widget", {}) or {}
+            w = getattr(e, "widget", None)
+            key = str(w) if w is not None else ""
+            target = mapping.get(key)
+            if target is None:
+                return "break"
+            try:
+                target.yview_scroll(units * 3, "units")
+            except Exception:
+                pass
+            return "break"
+
+        def _on_scrollbar_mousewheel(e: Any) -> str:
+            delta = int(getattr(e, "delta", 0) or 0)
+            if delta == 0:
+                return "break"
+            steps = max(1, int(abs(delta) / 120))
+            units = -steps if delta > 0 else steps
+            return _scroll_from_scrollbar_event(e, units)
+
+        def _on_scrollbar_button4(e: Any) -> str:
+            return _scroll_from_scrollbar_event(e, -1)
+
+        def _on_scrollbar_button5(e: Any) -> str:
+            return _scroll_from_scrollbar_event(e, 1)
+
+        self.root.bind_class(
+            "HyperTweakSettingsScrollbar", "<MouseWheel>", _on_scrollbar_mousewheel, add="+"
+        )
+        self.root.bind_class(
+            "HyperTweakSettingsScrollbar", "<Button-4>", _on_scrollbar_button4, add="+"
+        )
+        self.root.bind_class(
+            "HyperTweakSettingsScrollbar", "<Button-5>", _on_scrollbar_button5, add="+"
+        )
+
+    def _boost_left_panel_wheel_speed(self) -> None:
+        scroller = getattr(self, "scroller", None)
+        if scroller is None:
+            return
+
+        exclude_targets = set(getattr(self, "current_settings_wheel_exclude", []) or [])
+        exclude_targets.discard(None)
+        wheel_unit_multiplier = 3
+
+        def _scroll_scroller(units: int) -> str:
+            try:
+                scroller.yview_scroll(units * wheel_unit_multiplier, "units")
+            except Exception:
+                pass
+            return "break"
+
+        def _on_mousewheel(e: Any) -> str:
+            delta = int(getattr(e, "delta", 0) or 0)
+            if delta == 0:
+                return "break"
+            steps = max(1, int(abs(delta) / 120))
+            units = -steps if delta > 0 else steps
+            return _scroll_scroller(units)
+
+        def _on_button4(_e: Any) -> str:
+            return _scroll_scroller(-1)
+
+        def _on_button5(_e: Any) -> str:
+            return _scroll_scroller(1)
+
+        def _bind_iterative(root_widget: Any) -> None:
+            stack: list[Any] = [root_widget]
+            visited: set[str] = set()
+            while stack:
+                widget = stack.pop()
+                wname = str(getattr(widget, "_w", ""))
+                if wname in visited:
+                    continue
+                visited.add(wname)
+
+                if widget not in exclude_targets:
+                    widget.bind("<MouseWheel>", _on_mousewheel)
+                    widget.bind("<Button-4>", _on_button4)
+                    widget.bind("<Button-5>", _on_button5)
+
+                try:
+                    children = list(widget.winfo_children())
+                except Exception:
+                    children = []
+                stack.extend(children)
+
+        _bind_iterative(scroller)
+        container = getattr(scroller, "container", None)
+        if container is not None:
+            _bind_iterative(container)
+
+    def _install_left_panel_wheel_reapply(self) -> None:
+        if getattr(self, "_left_panel_wheel_reapply_installed", False):
+            return
+        scroller = getattr(self, "scroller", None)
+        container = getattr(scroller, "container", None) if scroller is not None else None
+        if container is None:
+            return
+
+        def _reapply(_e: Any) -> None:
+            self.root.after_idle(self._boost_left_panel_wheel_speed)
+
+        container.bind("<Enter>", _reapply, add="+")
+        self._left_panel_wheel_reapply_installed = True
 
     def _init_vars(self) -> None:
         self.var_v = tk.IntVar(value=1)
@@ -218,7 +361,7 @@ class HyperTweakApp:
         self.apply_advanced_visual_release = tk.BooleanVar(value=True)
         self.apply_temp_limit = tk.BooleanVar(value=False)
         self.apply_miui_home_animation = tk.BooleanVar(value=True)
-        self.apply_recents_style = tk.BooleanVar(value=False)  # Recents applies via Quick Toggles only
+        self.apply_recents_style = tk.BooleanVar(value=False) 
         self.apply_background_blur_supported = tk.BooleanVar(value=True)
 
         self.cur_device_level_list = tk.StringVar(value="—")
@@ -287,7 +430,6 @@ class HyperTweakApp:
         self._log_async(f"Connected to: {name}")
         self._ui_queue.put(("auto_refresh", "1"))
 
-        # Also pull current advanced-related settings and push them into the UI inputs.
         snap = self._snapshot_advanced_settings_bg()
         for key, val in snap.items():
             if val is None:
@@ -334,6 +476,108 @@ class HyperTweakApp:
             finally:
                 txt.configure(state="disabled")
         return values
+
+    def _searchable_settings_tables(self) -> list[tuple[str, Any]]:
+        tables: list[tuple[str, Any]] = []
+        for ns, attr in (
+            ("system", "txt_settings_system"),
+            ("secure", "txt_settings_secure"),
+            ("global", "txt_settings_global"),
+            ("props", "txt_settings_props"),
+        ):
+            txt = getattr(self, attr, None)
+            if txt is not None:
+                tables.append((ns, txt))
+        return tables
+
+    def _clear_search_settings_highlights(self) -> None:
+        for _, txt in self._searchable_settings_tables():
+            try:
+                txt.configure(state="normal")
+                txt.tag_remove("search_match", "1.0", "end")
+                txt.configure(state="disabled")
+            except Exception:
+                pass
+
+    def _collect_search_settings_lines(self, query: str) -> tuple[list[str], dict[str, int], dict[str, str]]:
+        qlow = query.lower()
+        results: list[str] = []
+        match_counts: dict[str, int] = {}
+        first_match_index: dict[str, str] = {}
+
+        for ns, txt in self._searchable_settings_tables():
+            match_counts[ns] = 0
+            try:
+                txt.configure(state="normal")
+                txt.tag_remove("search_match", "1.0", "end")
+                txt.tag_configure("search_match", background="#2d4a2d", foreground="#ffffff")
+                content = txt.get("1.0", "end-1c")
+
+                start = "1.0"
+                while True:
+                    idx = txt.search(query, start, stopindex="end", nocase=1)
+                    if not idx:
+                        break
+                    if ns not in first_match_index:
+                        first_match_index[ns] = idx
+
+                    line_start = txt.index(f"{idx} linestart")
+                    line_end = txt.index(f"{idx} lineend")
+                    txt.tag_add("search_match", line_start, line_end)
+
+                    end_idx = f"{idx}+{len(query)}c"
+                    match_counts[ns] += 1
+                    start = end_idx
+            finally:
+                txt.configure(state="disabled")
+
+            for line in content.splitlines():
+                line_stripped = line.strip()
+                if not line_stripped:
+                    continue
+                if qlow in line_stripped.lower():
+                    results.append(f"[{ns}] {line_stripped}")
+
+        return results, match_counts, first_match_index
+
+    def _schedule_search_settings_refresh(self, _event: object | None = None) -> None:
+        aid = self._search_settings_after_id
+        if aid is not None:
+            try:
+                self.root.after_cancel(aid)
+            except Exception:
+                pass
+            self._search_settings_after_id = None
+        self._search_settings_after_id = self.root.after(200, self._run_search_settings_refresh)
+
+    def _run_search_settings_refresh(self) -> None:
+        self._search_settings_after_id = None
+        ent = getattr(self, "ent_search_settings", None)
+        query = (ent.get().strip() if ent is not None else "").strip()
+
+        if not query:
+            self._clear_search_settings_highlights()
+            return
+
+        lines, match_counts, first_match_index = self._collect_search_settings_lines(query)
+        if lines:
+            nb = getattr(self, "nb_current_settings", None)
+            tab_index = getattr(self, "current_settings_tab_index", {})
+            if nb is not None and isinstance(tab_index, dict):
+                for ns in ("system", "secure", "global", "props"):
+                    if match_counts.get(ns, 0) > 0 and ns in tab_index:
+                        nb.select(tab_index[ns])
+                        txt = getattr(self, f"txt_settings_{ns}", None)
+                        idx = first_match_index.get(ns)
+                        if txt is not None and idx:
+                            try:
+                                txt.see(idx)
+                                txt.mark_set("insert", idx)
+                            except Exception:
+                                pass
+                        break
+        else:
+            self._clear_search_settings_highlights()
 
     def save_current_settings(self) -> None:
         snapshot = self._current_snapshot()
@@ -394,6 +638,7 @@ class HyperTweakApp:
                 txt.configure(state="disabled")
 
             self._log(f"Loaded settings from: {path}", level="success")
+            self._schedule_search_settings_refresh()
 
             if self._device:
                 self._run_bg("auto_diff", lambda: self._check_diff_only_bg(values))
@@ -1149,6 +1394,7 @@ class HyperTweakApp:
                             txt.delete("1.0", "end")
                             txt.insert("1.0", msg)
                             txt.configure(state="disabled")
+                        self._schedule_search_settings_refresh()
                     elif kind == "settings_secure":
                         txt = getattr(self, "txt_settings_secure", None)
                         if txt is not None:
@@ -1156,6 +1402,7 @@ class HyperTweakApp:
                             txt.delete("1.0", "end")
                             txt.insert("1.0", msg)
                             txt.configure(state="disabled")
+                        self._schedule_search_settings_refresh()
                     elif kind == "settings_global":
                         txt = getattr(self, "txt_settings_global", None)
                         if txt is not None:
@@ -1163,6 +1410,7 @@ class HyperTweakApp:
                             txt.delete("1.0", "end")
                             txt.insert("1.0", msg)
                             txt.configure(state="disabled")
+                        self._schedule_search_settings_refresh()
                     elif kind == "settings_props":
                         txt = getattr(self, "txt_settings_props", None)
                         if txt is not None:
@@ -1170,6 +1418,7 @@ class HyperTweakApp:
                             txt.delete("1.0", "end")
                             txt.insert("1.0", msg)
                             txt.configure(state="disabled")
+                        self._schedule_search_settings_refresh()
                     elif kind == "current":
                         apply_current_kv(self, msg)
                     elif kind == "busy":
