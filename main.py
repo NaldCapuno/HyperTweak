@@ -640,12 +640,13 @@ class HyperTweakApp:
                         diff_count += 1
 
         if "props" in loaded_values:
+            live_props = self._fetch_live_props_map()
             for line in loaded_values["props"].splitlines():
                 if " = " in line:
                     k, v = [x.strip() for x in line.split(" = ", 1)]
                     if k in self.IGNORED_KEYS: continue
                     
-                    live_prop = self._device.shell(f"getprop {k}").strip()
+                    live_prop = live_props.get(k, "")
                     if live_prop != v:
                         self._log_async(f"[DIFF] props -> {k}: Device is '{live_prop}', File is '{v}'")
                         diff_count += 1
@@ -695,6 +696,28 @@ class HyperTweakApp:
             self._ui_queue.put((f"settings_{table}", formatted))
         self._log_async("Refresh complete.", level="success")
 
+    def _fetch_live_props_map(self) -> dict[str, str]:
+        """Fetch all system properties once and return key/value map."""
+        assert self._device is not None
+        raw_props = self._device.shell("getprop") or ""
+        live_props: dict[str, str] = {}
+
+        for line in raw_props.splitlines():
+            line = line.strip()
+            if not line or not line.startswith("[") or "]:" not in line:
+                continue
+            try:
+                key_part, val_part = line.split("]:", 1)
+                key = key_part.lstrip("[").strip()
+                val = val_part.strip()
+                if val.startswith("[") and val.endswith("]"):
+                    val = val[1:-1].strip()
+                live_props[key] = val
+            except Exception:
+                continue
+
+        return live_props
+
     # -------------------------
     # Apply Settings
     # -------------------------
@@ -738,6 +761,7 @@ class HyperTweakApp:
 
         if "props" in target_data:
             self._log_async("Verifying system properties...")
+            live_props = self._fetch_live_props_map()
             for line in target_data["props"].splitlines():
                 if " = " in line:
                     k, v = [x.strip() for x in line.split(" = ", 1)]
@@ -745,7 +769,7 @@ class HyperTweakApp:
                     if k in self.IGNORED_KEYS:
                         continue
                         
-                    live_prop = self._device.shell(f"getprop {k}").strip()
+                    live_prop = live_props.get(k, "")
                     
                     if live_prop != v:
                         diff_list.append(("props", k, live_prop, v))
