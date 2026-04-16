@@ -57,6 +57,12 @@ class HyperTweakApp:
         self._device: Any | None = None
         self._device_name: str | None = None
         self._search_settings_after_id: str | None = None
+        self._settings_full_text: dict[str, str] = {
+            "system": "",
+            "secure": "",
+            "global": "",
+            "props": "",
+        }
 
         self._build_ui()
         self._start_queue_poller()
@@ -461,20 +467,8 @@ class HyperTweakApp:
 
     def _current_snapshot(self) -> dict[str, str]:
         values: dict[str, str] = {}
-        for name, attr in (
-            ("system", "txt_settings_system"),
-            ("secure", "txt_settings_secure"),
-            ("global", "txt_settings_global"),
-            ("props", "txt_settings_props"),
-        ):
-            txt = getattr(self, attr, None)
-            if txt is None:
-                continue
-            try:
-                txt.configure(state="normal")
-                values[name] = txt.get("1.0", "end-1c")
-            finally:
-                txt.configure(state="disabled")
+        for name in ("system", "secure", "global", "props"):
+            values[name] = self._settings_full_text.get(name, "")
         return values
 
     def _searchable_settings_tables(self) -> list[tuple[str, Any]]:
@@ -490,55 +484,26 @@ class HyperTweakApp:
                 tables.append((ns, txt))
         return tables
 
-    def _clear_search_settings_highlights(self) -> None:
-        for _, txt in self._searchable_settings_tables():
-            try:
-                txt.configure(state="normal")
-                txt.tag_remove("search_match", "1.0", "end")
-                txt.configure(state="disabled")
-            except Exception:
-                pass
+    def _set_settings_table_text(self, ns: str, content: str) -> None:
+        txt = getattr(self, f"txt_settings_{ns}", None)
+        if txt is None:
+            return
+        txt.configure(state="normal")
+        txt.delete("1.0", "end")
+        txt.insert("1.0", content)
+        txt.configure(state="disabled")
 
-    def _collect_search_settings_lines(self, query: str) -> tuple[list[str], dict[str, int], dict[str, str]]:
+    def _filter_settings_lines_by_key(self, content: str, query: str) -> tuple[str, int]:
         qlow = query.lower()
-        results: list[str] = []
-        match_counts: dict[str, int] = {}
-        first_match_index: dict[str, str] = {}
-
-        for ns, txt in self._searchable_settings_tables():
-            match_counts[ns] = 0
-            try:
-                txt.configure(state="normal")
-                txt.tag_remove("search_match", "1.0", "end")
-                txt.tag_configure("search_match", background="#2d4a2d", foreground="#ffffff")
-                content = txt.get("1.0", "end-1c")
-
-                start = "1.0"
-                while True:
-                    idx = txt.search(query, start, stopindex="end", nocase=1)
-                    if not idx:
-                        break
-                    if ns not in first_match_index:
-                        first_match_index[ns] = idx
-
-                    line_start = txt.index(f"{idx} linestart")
-                    line_end = txt.index(f"{idx} lineend")
-                    txt.tag_add("search_match", line_start, line_end)
-
-                    end_idx = f"{idx}+{len(query)}c"
-                    match_counts[ns] += 1
-                    start = end_idx
-            finally:
-                txt.configure(state="disabled")
-
-            for line in content.splitlines():
-                line_stripped = line.strip()
-                if not line_stripped:
-                    continue
-                if qlow in line_stripped.lower():
-                    results.append(f"[{ns}] {line_stripped}")
-
-        return results, match_counts, first_match_index
+        matches: list[str] = []
+        for line in content.splitlines():
+            line_stripped = line.strip()
+            if not line_stripped:
+                continue
+            key = line_stripped.split(" = ", 1)[0].strip()
+            if qlow in key.lower():
+                matches.append(line_stripped)
+        return "\n".join(matches), len(matches)
 
     def _schedule_search_settings_refresh(self, _event: object | None = None) -> None:
         aid = self._search_settings_after_id
@@ -555,29 +520,27 @@ class HyperTweakApp:
         ent = getattr(self, "ent_search_settings", None)
         query = (ent.get().strip() if ent is not None else "").strip()
 
+        tab_order = ("system", "secure", "global", "props")
+
         if not query:
-            self._clear_search_settings_highlights()
+            for ns in tab_order:
+                self._set_settings_table_text(ns, self._settings_full_text.get(ns, ""))
             return
 
-        lines, match_counts, first_match_index = self._collect_search_settings_lines(query)
-        if lines:
-            nb = getattr(self, "nb_current_settings", None)
-            tab_index = getattr(self, "current_settings_tab_index", {})
-            if nb is not None and isinstance(tab_index, dict):
-                for ns in ("system", "secure", "global", "props"):
-                    if match_counts.get(ns, 0) > 0 and ns in tab_index:
-                        nb.select(tab_index[ns])
-                        txt = getattr(self, f"txt_settings_{ns}", None)
-                        idx = first_match_index.get(ns)
-                        if txt is not None and idx:
-                            try:
-                                txt.see(idx)
-                                txt.mark_set("insert", idx)
-                            except Exception:
-                                pass
-                        break
-        else:
-            self._clear_search_settings_highlights()
+        match_counts: dict[str, int] = {}
+        for ns in tab_order:
+            full_content = self._settings_full_text.get(ns, "")
+            filtered_content, count = self._filter_settings_lines_by_key(full_content, query)
+            match_counts[ns] = count
+            self._set_settings_table_text(ns, filtered_content if filtered_content else "No matching settings.")
+
+        nb = getattr(self, "nb_current_settings", None)
+        tab_index = getattr(self, "current_settings_tab_index", {})
+        if nb is not None and isinstance(tab_index, dict):
+            for ns in tab_order:
+                if match_counts.get(ns, 0) > 0 and ns in tab_index:
+                    nb.select(tab_index[ns])
+                    break
 
     def save_current_settings(self) -> None:
         snapshot = self._current_snapshot()
@@ -632,10 +595,8 @@ class HyperTweakApp:
                 if txt is None or key not in values:
                     continue
                 content = str(values.get(key, ""))
-                txt.configure(state="normal")
-                txt.delete("1.0", "end")
-                txt.insert("1.0", content)
-                txt.configure(state="disabled")
+                self._settings_full_text[key] = content
+                self._set_settings_table_text(key, content)
 
             self._log(f"Loaded settings from: {path}", level="success")
             self._schedule_search_settings_refresh()
@@ -700,7 +661,7 @@ class HyperTweakApp:
             ("system", "settings list system"),
             ("secure", "settings list secure"),
             ("global", "settings list global"),
-            ("props", 'getprop | grep -E "computility|miui_home|visual_release|blur"'),
+            ("props", "getprop"),
         ]
         self._log_async("Refreshing settings (system/secure/global) and props from device...")
         for table, cmd in tables:
@@ -1388,36 +1349,20 @@ class HyperTweakApp:
                     elif kind == "auto_refresh":
                         self.refresh_current_settings()
                     elif kind == "settings_system":
-                        txt = getattr(self, "txt_settings_system", None)
-                        if txt is not None:
-                            txt.configure(state="normal")
-                            txt.delete("1.0", "end")
-                            txt.insert("1.0", msg)
-                            txt.configure(state="disabled")
+                        self._settings_full_text["system"] = msg
+                        self._set_settings_table_text("system", msg)
                         self._schedule_search_settings_refresh()
                     elif kind == "settings_secure":
-                        txt = getattr(self, "txt_settings_secure", None)
-                        if txt is not None:
-                            txt.configure(state="normal")
-                            txt.delete("1.0", "end")
-                            txt.insert("1.0", msg)
-                            txt.configure(state="disabled")
+                        self._settings_full_text["secure"] = msg
+                        self._set_settings_table_text("secure", msg)
                         self._schedule_search_settings_refresh()
                     elif kind == "settings_global":
-                        txt = getattr(self, "txt_settings_global", None)
-                        if txt is not None:
-                            txt.configure(state="normal")
-                            txt.delete("1.0", "end")
-                            txt.insert("1.0", msg)
-                            txt.configure(state="disabled")
+                        self._settings_full_text["global"] = msg
+                        self._set_settings_table_text("global", msg)
                         self._schedule_search_settings_refresh()
                     elif kind == "settings_props":
-                        txt = getattr(self, "txt_settings_props", None)
-                        if txt is not None:
-                            txt.configure(state="normal")
-                            txt.delete("1.0", "end")
-                            txt.insert("1.0", msg)
-                            txt.configure(state="disabled")
+                        self._settings_full_text["props"] = msg
+                        self._set_settings_table_text("props", msg)
                         self._schedule_search_settings_refresh()
                     elif kind == "current":
                         apply_current_kv(self, msg)
