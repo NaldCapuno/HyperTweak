@@ -85,9 +85,17 @@ class HyperTweakApp:
             style="primary.TButton",
         )
         self.btn_connect.grid(row=0, column=0, sticky="w")
+        self.btn_refresh_all = ttk.Button(
+            header,
+            text="Refresh",
+            command=self.refresh_all_settings,
+            width=12,
+            style="secondary.TButton",
+        )
+        self.btn_refresh_all.grid(row=0, column=1, sticky="w", padx=(10, 0))
 
         self.lbl_device = ttk.Label(header, text="No device connected", anchor="w")
-        self.lbl_device.grid(row=0, column=1, sticky="ew", padx=(12, 8))
+        self.lbl_device.grid(row=0, column=2, sticky="ew", padx=(12, 8))
 
         self.lbl_adb_hint = ttk.Label(
             header,
@@ -95,7 +103,7 @@ class HyperTweakApp:
             anchor="e",
             foreground="#9aa4b2",
         )
-        self.lbl_adb_hint.grid(row=0, column=2, sticky="e")
+        self.lbl_adb_hint.grid(row=0, column=3, sticky="e")
 
         self.scroller = ScrolledFrame(self.root, autohide=False, padding=(14, 8, 26, 10))
         self.scroller.grid(row=1, column=0, sticky="nsew")
@@ -465,6 +473,12 @@ class HyperTweakApp:
             return
         self._run_bg("refresh", self._refresh_current_settings_bg)
 
+    def refresh_all_settings(self) -> None:
+        if self._device is None:
+            self._log("No device connected. Click 'Connect Device' first.", level="error")
+            return
+        self._run_bg("refresh_all", self._refresh_all_settings_bg)
+
     def _current_snapshot(self) -> dict[str, str]:
         values: dict[str, str] = {}
         for name in ("system", "secure", "global", "props"):
@@ -695,6 +709,17 @@ class HyperTweakApp:
             formatted = "\n".join(lines) or "No settings returned."
             self._ui_queue.put((f"settings_{table}", formatted))
         self._log_async("Refresh complete.", level="success")
+
+    def _refresh_all_settings_bg(self) -> None:
+        assert self._device is not None
+        self._log_async("Refreshing all settings from device...")
+        self._refresh_current_settings_bg()
+        snap = self._snapshot_advanced_settings_bg()
+        for key, val in snap.items():
+            if val is None:
+                continue
+            self._ui_queue.put(("current", f"{key}={val}"))
+        self._log_async("All settings refreshed.", level="success")
 
     def _fetch_live_props_map(self) -> dict[str, str]:
         """Fetch all system properties once and return key/value map."""
@@ -1371,7 +1396,7 @@ class HyperTweakApp:
                     elif kind == "device":
                         self.lbl_device.configure(text=f"Connected: {msg}")
                     elif kind == "auto_refresh":
-                        self.refresh_current_settings()
+                        self.refresh_all_settings()
                     elif kind == "settings_system":
                         self._settings_full_text["system"] = msg
                         self._set_settings_table_text("system", msg)
@@ -1393,6 +1418,7 @@ class HyperTweakApp:
                     elif kind == "busy":
                         busy = msg == "1"
                         self.btn_connect.configure(state=("disabled" if busy else "normal"))
+                        self.btn_refresh_all.configure(state=("disabled" if busy else "normal"))
                         self.btn_reboot.configure(state=("disabled" if busy else "normal"))
                         self.btn_apply.configure(state=("disabled" if busy else "normal"))
                         for btn in (
