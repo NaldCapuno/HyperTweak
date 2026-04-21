@@ -8,11 +8,7 @@
 
 ## Overview
 
-- **Current Device Settings** — Tabs for `system`, `secure`, `global`, and `props` showing `key = value` pairs. Supports **Refresh**, **Save**, **Load**, and **Apply** which automatically identifies differences between the file and your device.
-
-  > **Note (props tab):**  
-  > The `ro.surface_flinger.supports_background_blur` property tells Android whether the GPU is capable of rendering system blur.
-
+- **Current Device Settings** — Tabs for `system`, `secure`, `global`, and `props` showing `key = value` pairs. Supports **Save**, **Load**, and **Apply** which automatically identifies differences between the file and your device. Use the top-bar **Refresh** button to refresh all sections.
 - **Quick Toggles** — Remove animations (on/off) and Recents style (Vertically / Horizontally / Stacked). Uses the device’s current values and applies changes immediately.
 - **Advanced Settings** — Device Level List, Computility, Advanced Visual Release, Advanced Textures, Animation, Temp Limit. Use **Apply Settings** to push changes, **Restore previous settings** to revert the last apply, and **View previous settings** to inspect it.
 - **Command Console** — Run custom ADB shell commands.
