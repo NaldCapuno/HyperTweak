@@ -75,7 +75,7 @@ def build_shell_commands(payload: SettingsPayload, selection: ApplySelection) ->
         cmds.append(mqsas_setprop(f"persist.sys.advanced_visual_release {payload.advanced_visual_release}"))
 
     if selection.temp_limit:
-        cmds.append(f"rt_enable_templimit {1 if payload.temp_limit_enabled else 0}")
+        cmds.append(put("rt_enable_templimit", "true" if payload.temp_limit_enabled else "false"))
         cmds.append(put("rt_templimit_bottom", payload.temp_limit_bottom))
         cmds.append(put("rt_templimit_ceiling", payload.temp_limit_ceiling))
 
