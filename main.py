@@ -7,11 +7,10 @@ import re
 import threading
 import time
 import tkinter as tk
-from tkinter import filedialog, ttk
+from tkinter import filedialog
 from typing import Any, Callable
 
-import ttkbootstrap as tb
-from ttkbootstrap.widgets.scrolled import ScrolledFrame
+import customtkinter as ctk
 
 try:
     from ppadb.client import Client as AdbClient
@@ -26,7 +25,24 @@ from ui import (
     build_current_device_settings,
     build_quick_toggles,
 )
-from ui.shared import apply_current_kv
+from ui.shared import (
+    ACCENT_PRIMARY,
+    ACCENT_SECONDARY,
+    ACCENT_SUCCESS,
+    ACCENT_WARNING,
+    ACCENT_GLOBAL_PRIMARY,
+    ACCENT_GLOBAL_SUCCESS,
+    ACCENT_GLOBAL_DANGER,
+    APP_BG,
+    SECTION_BORDER,
+    SECTION_FG,
+    SUBSECTION_FG,
+    SUBSECTION_BORDER,
+    SUBSECTION_SCROLLBAR_BTN,
+    SUBSECTION_SCROLLBAR_HOVER,
+    SUBSECTION_TEXT,
+    apply_current_kv,
+)
 
 class HyperTweakApp:
     IGNORED_KEYS = {
@@ -47,7 +63,8 @@ class HyperTweakApp:
     }
 
     def __init__(self) -> None:
-        self.root = tb.Window(themename="darkly")
+        ctk.set_appearance_mode("dark")
+        self.root = ctk.CTk(fg_color=APP_BG)
         self.root.title("HyperTweak")
         self.root.geometry("800x600")
         self.root.resizable(False, False)
@@ -73,40 +90,40 @@ class HyperTweakApp:
         self.root.columnconfigure(1, weight=1)
         self.root.rowconfigure(1, weight=1)
 
-        header = ttk.Frame(self.root, padding=(14, 12, 14, 10))
-        header.grid(row=0, column=0, columnspan=2, sticky="ew")
-        header.columnconfigure(1, weight=1)
+        header = ctk.CTkFrame(self.root, fg_color="transparent")
+        header.grid(row=0, column=0, columnspan=2, sticky="ew", padx=(14, 14), pady=(8, 6))
+        header.columnconfigure(2, weight=1)
 
-        self.btn_connect = ttk.Button(
+        self.btn_connect = ctk.CTkButton(
             header,
             text="Connect Device",
             command=self.connect_device,
-            width=18,
-            style="primary.TButton",
+            width=132,
+            fg_color=ACCENT_GLOBAL_PRIMARY,
         )
         self.btn_connect.grid(row=0, column=0, sticky="w")
-        self.btn_refresh_all = ttk.Button(
+        self.btn_refresh_all = ctk.CTkButton(
             header,
             text="Refresh",
             command=self.refresh_all_settings,
-            width=12,
-            style="secondary.TButton",
+            width=96,
+            fg_color=ACCENT_GLOBAL_PRIMARY,
         )
         self.btn_refresh_all.grid(row=0, column=1, sticky="w", padx=(10, 0))
 
-        self.lbl_device = ttk.Label(header, text="No device connected", anchor="w")
+        self.lbl_device = ctk.CTkLabel(header, text="No device connected", anchor="w")
         self.lbl_device.grid(row=0, column=2, sticky="ew", padx=(12, 8))
 
-        self.lbl_adb_hint = ttk.Label(
+        self.lbl_adb_hint = ctk.CTkLabel(
             header,
             text="ADB server: 127.0.0.1:5037",
             anchor="e",
-            foreground="#9aa4b2",
+            text_color="#9aa4b2",
         )
         self.lbl_adb_hint.grid(row=0, column=3, sticky="e")
 
-        self.scroller = ScrolledFrame(self.root, autohide=False, padding=(14, 8, 26, 10))
-        self.scroller.grid(row=1, column=0, sticky="nsew")
+        self.scroller = ctk.CTkScrollableFrame(self.root, corner_radius=0, fg_color="transparent")
+        self.scroller.grid(row=1, column=0, sticky="nsew", padx=(14, 8), pady=(8, 10))
 
         page = self.scroller
         page.columnconfigure(0, weight=1)
@@ -115,7 +132,7 @@ class HyperTweakApp:
         self._init_vars()
         self._vcmd_int = (self.root.register(self._validate_int_entry), "%P")
 
-        content = ttk.Frame(page)
+        content = ctk.CTkFrame(page, fg_color="transparent")
         content.grid(row=0, column=0, sticky="nsew")
         content.columnconfigure(0, weight=1)
 
@@ -127,92 +144,105 @@ class HyperTweakApp:
         self._boost_left_panel_wheel_speed()
         self._install_left_panel_wheel_reapply()
 
-        footer = ttk.Frame(self.root, padding=(14, 6, 14, 8))
-        footer.grid(row=2, column=0, columnspan=2, sticky="ew")
+        footer = ctk.CTkFrame(self.root, fg_color="transparent")
+        footer.grid(row=2, column=0, columnspan=2, sticky="ew", padx=(14, 14), pady=(0, 8))
         footer.columnconfigure(0, weight=1)
 
-        btns = ttk.Frame(footer)
+        btns = ctk.CTkFrame(footer, fg_color="transparent")
         btns.grid(row=0, column=0, sticky="ew")
         btns.columnconfigure(0, weight=0)
         btns.columnconfigure(1, weight=0)
         btns.columnconfigure(2, weight=1)
 
-        self.btn_restore_previous = ttk.Button(
+        self.btn_restore_previous = ctk.CTkButton(
             btns,
             text="Restore previous settings",
             command=self.restore_previous_settings,
-            style="secondary.TButton",
-            width=22,
+            width=176,
         )
         self.btn_restore_previous.grid(row=0, column=0, sticky="w")
         self.btn_restore_previous.grid_remove()
 
-        self.btn_view_previous = ttk.Button(
+        self.btn_view_previous = ctk.CTkButton(
             btns,
             text="View previous settings",
             command=self.view_previous_settings,
-            style="secondary.TButton",
-            width=20,
+            width=160,
         )
         self.btn_view_previous.grid(row=0, column=1, sticky="w", padx=(8, 0))
         self.btn_view_previous.grid_remove()
 
-        self.btn_apply = ttk.Button(
+        self.btn_apply = ctk.CTkButton(
             btns,
             text="Apply Settings",
             command=self.apply_settings,
-            style="success.TButton",
-            width=18,
+            width=144,
+            fg_color=ACCENT_GLOBAL_SUCCESS,
+            hover_color=("#00D39B", "#00D39B"),
         )
         self.btn_apply.grid(row=0, column=2, sticky="e")
 
-        self.btn_reboot = ttk.Button(
+        self.btn_reboot = ctk.CTkButton(
             btns,
             text="Reboot",
             command=self.reboot_device,
-            style="danger.TButton",
-            width=10,
+            width=80,
+            fg_color=ACCENT_GLOBAL_DANGER,
+            hover_color=("#FF5C4F", "#FF5C4F"),
         )
         self.btn_reboot.grid(row=0, column=3, sticky="e", padx=(10, 0))
 
-        right_wrap = ttk.Frame(self.root, padding=(10, 8, 14, 10), width=360)
-        right_wrap.grid(row=1, column=1, sticky="nsew")
+        right_wrap = ctk.CTkFrame(
+            self.root,
+            fg_color=SECTION_FG,
+            border_width=1,
+            border_color=SECTION_BORDER,
+            width=360,
+            corner_radius=8,
+        )
+        right_wrap.grid(row=1, column=1, sticky="nsew", padx=(4, 14), pady=(8, 10))
         self.root.rowconfigure(1, weight=1)
         right_wrap.rowconfigure(0, weight=1)
         right_wrap.grid_propagate(False)
 
-        notebook = ttk.Notebook(right_wrap)
-        notebook.grid(row=0, column=0, sticky="nsew")
+        notebook = ctk.CTkTabview(right_wrap, fg_color="transparent")
+        notebook.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
         right_wrap.columnconfigure(0, weight=1)
 
-        log_tab = ttk.Frame(notebook)
-        notebook.add(log_tab, text="Status Log")
+        log_tab = notebook.add("Status Log")
         log_tab.rowconfigure(1, weight=1)
         log_tab.columnconfigure(0, weight=1)
 
-        log_header = ttk.Frame(log_tab)
-        log_header.grid(row=0, column=0, sticky="ew")
+        log_header = ctk.CTkFrame(log_tab, fg_color="transparent")
+        log_header.grid(row=0, column=0, sticky="ew", padx=2, pady=(2, 8))
         log_header.columnconfigure(0, weight=1)
 
-        ttk.Label(log_header, text="Status Log").grid(row=0, column=0, sticky="w")
-        self.btn_clear = ttk.Button(log_header, text="Clear", command=self._clear_log, width=10)
+        self.btn_clear = ctk.CTkButton(log_header, text="Clear", command=self._clear_log, width=80)
+        try:
+            self.btn_clear.configure(fg_color=ACCENT_SECONDARY)
+        except Exception:
+            pass
         self.btn_clear.grid(row=0, column=1, sticky="e")
 
-        self.txt_log = tk.Text(
+        self.txt_log = ctk.CTkTextbox(
             log_tab,
             height=1,
             wrap="word",
-            padx=10,
-            pady=6,
-            bg="#0e1116",
-            fg="#e7eaf0",
-            insertbackground="#e7eaf0",
-            relief="flat",
+            corner_radius=0,
+            fg_color=SUBSECTION_FG,
+            text_color=SUBSECTION_TEXT,
+            border_width=1,
+            border_color=SUBSECTION_BORDER,
+            scrollbar_button_color=SUBSECTION_SCROLLBAR_BTN,
+            scrollbar_button_hover_color=SUBSECTION_SCROLLBAR_HOVER,
         )
-        self.txt_log.grid(row=1, column=0, sticky="nsew")
+        self.txt_log.grid(row=1, column=0, sticky="nsew", padx=2, pady=(0, 2))
 
-        console_tab = build_command_console(notebook, self)
-        notebook.add(console_tab, text="Command Console")
+        console_host = notebook.add("Command Console")
+        console_host.rowconfigure(0, weight=1)
+        console_host.columnconfigure(0, weight=1)
+        console_tab = build_command_console(console_host, self)
+        console_tab.grid(row=0, column=0, sticky="nsew")
 
         self._log("Ready. Connect a device via USB debugging.")
         self._append_console("Console ready.\n")
@@ -257,7 +287,7 @@ class HyperTweakApp:
             if target is None:
                 return "break"
             try:
-                target.yview_scroll(units * 3, "units")
+                target.yview_scroll(units * wheel_unit_multiplier, "units")
             except Exception:
                 pass
             return "break"
@@ -290,14 +320,24 @@ class HyperTweakApp:
         scroller = getattr(self, "scroller", None)
         if scroller is None:
             return
+        canvas = getattr(scroller, "_parent_canvas", None)
+        scroller_bar = getattr(scroller, "_scrollbar", None)
 
         exclude_targets = set(getattr(self, "current_settings_wheel_exclude", []) or [])
         exclude_targets.discard(None)
-        wheel_unit_multiplier = 3
+        wheel_unit_multiplier = 12
+        wheel_fraction_step = 0.03
 
         def _scroll_scroller(units: int) -> str:
             try:
-                scroller.yview_scroll(units * wheel_unit_multiplier, "units")
+                if canvas is not None:
+                    first_last = canvas.yview()
+                    if isinstance(first_last, tuple) and len(first_last) == 2:
+                        first, _last = first_last
+                        next_pos = max(0.0, min(1.0, float(first) + (units * wheel_fraction_step)))
+                        canvas.yview_moveto(next_pos)
+                    else:
+                        canvas.yview_scroll(units * wheel_unit_multiplier, "units")
             except Exception:
                 pass
             return "break"
@@ -316,6 +356,14 @@ class HyperTweakApp:
         def _on_button5(_e: Any) -> str:
             return _scroll_scroller(1)
 
+        def _safe_bind(widget: Any, sequence: str, handler: Any) -> None:
+            try:
+                widget.bind(sequence, handler, add="+")
+            except NotImplementedError:
+                pass
+            except Exception:
+                pass
+
         def _bind_iterative(root_widget: Any) -> None:
             stack: list[Any] = [root_widget]
             visited: set[str] = set()
@@ -327,9 +375,9 @@ class HyperTweakApp:
                 visited.add(wname)
 
                 if widget not in exclude_targets:
-                    widget.bind("<MouseWheel>", _on_mousewheel)
-                    widget.bind("<Button-4>", _on_button4)
-                    widget.bind("<Button-5>", _on_button5)
+                    _safe_bind(widget, "<MouseWheel>", _on_mousewheel)
+                    _safe_bind(widget, "<Button-4>", _on_button4)
+                    _safe_bind(widget, "<Button-5>", _on_button5)
 
                 try:
                     children = list(widget.winfo_children())
@@ -338,15 +386,21 @@ class HyperTweakApp:
                 stack.extend(children)
 
         _bind_iterative(scroller)
-        container = getattr(scroller, "container", None)
-        if container is not None:
-            _bind_iterative(container)
+        if canvas is not None:
+            _bind_iterative(canvas)
+        if scroller_bar is not None:
+            try:
+                scroller_bar.bind("<MouseWheel>", _on_mousewheel, add="+")
+                scroller_bar.bind("<Button-4>", _on_button4, add="+")
+                scroller_bar.bind("<Button-5>", _on_button5, add="+")
+            except Exception:
+                pass
 
     def _install_left_panel_wheel_reapply(self) -> None:
         if getattr(self, "_left_panel_wheel_reapply_installed", False):
             return
         scroller = getattr(self, "scroller", None)
-        container = getattr(scroller, "container", None) if scroller is not None else None
+        container = getattr(scroller, "_parent_canvas", None) if scroller is not None else None
         if container is None:
             return
 
@@ -393,13 +447,21 @@ class HyperTweakApp:
         self.cur_background_blur_supported = tk.StringVar(value="—")
 
     def _sync_temp_enabled_state(self) -> None:
+        temp_toggle = getattr(self, "chk_temp_enable", None)
         if not bool(self.apply_temp_limit.get()):
             try:
+                if temp_toggle is not None:
+                    temp_toggle.configure(state="disabled")
                 self.ent_temp_bottom.configure(state="disabled")
                 self.ent_temp_ceiling.configure(state="disabled")
             except (AttributeError, tk.TclError):
                 pass
             return
+        try:
+            if temp_toggle is not None:
+                temp_toggle.configure(state="normal")
+        except (AttributeError, tk.TclError):
+            pass
         state = "normal" if self.var_temp_enable.get() else "disabled"
         self.ent_temp_bottom.configure(state=state)
         self.ent_temp_ceiling.configure(state=state)
@@ -553,7 +615,7 @@ class HyperTweakApp:
         if nb is not None and isinstance(tab_index, dict):
             for ns in tab_order:
                 if match_counts.get(ns, 0) > 0 and ns in tab_index:
-                    nb.select(tab_index[ns])
+                    nb.set(tab_index[ns])
                     break
 
     def save_current_settings(self) -> None:
@@ -1148,19 +1210,16 @@ class HyperTweakApp:
 
         text = "\n".join(lines)
 
-        dialog = tk.Toplevel(self.root)
+        dialog = ctk.CTkToplevel(self.root)
         dialog.title("View previous settings")
         dialog.geometry("400x420")
         dialog.resizable(False, False)
 
-        txt = tk.Text(
+        txt = ctk.CTkTextbox(
             dialog,
             wrap="word",
-            bg="#0e1116",
-            fg="#e7eaf0",
-            insertbackground="#e7eaf0",
-            relief="flat",
-            font=("Consolas", 9),
+            corner_radius=0,
+            font=("Consolas", 11),
         )
         txt.pack(fill="both", expand=True, padx=10, pady=10)
         txt.insert("1.0", text)
@@ -1307,9 +1366,16 @@ class HyperTweakApp:
                 continue
             try:
                 if name == current:
-                    btn.configure(style="success.TButton")
+                    btn.configure(
+                        fg_color=ACCENT_SUCCESS,
+                        border_width=0,
+                    )
                 else:
-                    btn.configure(style="TButton")
+                    btn.configure(
+                        fg_color=ACCENT_SECONDARY,
+                        border_width=0,
+                        hover_color=("#49739A", "#49739A"),
+                    )
             except Exception:
                 pass
 
@@ -1451,7 +1517,7 @@ class HyperTweakApp:
                         try:
                             self.btn_toggle_animations.configure(
                                 text=msg,
-                                style=("success.TButton" if "Enable" in msg else "warning.TButton"),
+                                fg_color=ACCENT_SUCCESS if "Enable" in msg else ACCENT_WARNING,
                             )
                         except Exception:
                             pass

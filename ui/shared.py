@@ -2,97 +2,172 @@ from __future__ import annotations
 
 import re
 import tkinter as tk
-from tkinter import ttk
 from typing import TYPE_CHECKING, Any, Callable
 
-from ttkbootstrap.constants import INVERSE, SECONDARY
-from ttkbootstrap.widgets import ToolTip
+import customtkinter as ctk
 
 if TYPE_CHECKING:
     from main import HyperTweakApp
 
 
-def section_frame(parent: ttk.Widget, title: str) -> ttk.Labelframe:
-    lf = ttk.Labelframe(parent, text=title, padding=(12, 10, 12, 10))
-    lf.columnconfigure(1, weight=1)
+# Palette matched to your reference screenshot
+APP_BG = ("#1F1F1F", "#1F1F1F")
+SECTION_FG = ("#262626", "#262626")
+SECTION_BORDER = ("#6C6C6C", "#6C6C6C")
+SUBSECTION_FG = ("#2F2F2F", "#2F2F2F")
+SUBSECTION_BORDER = ("#7A7A7A", "#7A7A7A")
+SUBSECTION_TEXT = ("#EDEDED", "#EDEDED")
+SUBSECTION_SCROLLBAR_BTN = ("#6C6C6C", "#6C6C6C")
+SUBSECTION_SCROLLBAR_HOVER = ("#7A7A7A", "#7A7A7A")
+
+# Button accents from the screenshot
+ACCENT_PRIMARY = ("#2F5F85", "#2F5F85")        # blue-gray (global header buttons)
+ACCENT_SECONDARY = ("#355F82", "#355F82")      # slightly muted blue-gray (panel buttons)
+ACCENT_SUCCESS = ("#00C08A", "#00C08A")        # teal-green (Apply)
+ACCENT_DANGER = ("#E74C3C", "#E74C3C")         # red (Reboot)
+ACCENT_WARNING = ("#C57C00", "#C57C00")        # optional orange (not prominent in ref)
+
+# Global actions (top/bottom bars) – keep slightly more punch than panel buttons
+ACCENT_GLOBAL_PRIMARY = ("#2F5F85", "#2F5F85")
+ACCENT_GLOBAL_SUCCESS = ("#00C08A", "#00C08A")
+ACCENT_GLOBAL_DANGER = ("#E74C3C", "#E74C3C")
+
+
+class SimpleToolTip:
+    def __init__(self, widget: Any, text: str) -> None:
+        self.widget = widget
+        self.text = text
+        self.tipwindow: tk.Toplevel | None = None
+        self.widget.bind("<Enter>", self._show, add="+")
+        self.widget.bind("<Leave>", self._hide, add="+")
+
+    def _show(self, _event: object = None) -> None:
+        if self.tipwindow is not None:
+            return
+        x = self.widget.winfo_rootx() + 18
+        y = self.widget.winfo_rooty() + 24
+        tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        lbl = tk.Label(
+            tw,
+            text=self.text,
+            justify="left",
+            background="#1f2329",
+            foreground="#e7eaf0",
+            relief="solid",
+            borderwidth=1,
+            padx=6,
+            pady=4,
+            font=("Segoe UI", 9),
+        )
+        lbl.pack()
+        self.tipwindow = tw
+
+    def _hide(self, _event: object = None) -> None:
+        if self.tipwindow is not None:
+            self.tipwindow.destroy()
+            self.tipwindow = None
+
+
+def section_frame(parent: Any, title: str) -> ctk.CTkFrame:
+    lf = ctk.CTkFrame(
+        parent,
+        corner_radius=8,
+        fg_color=SECTION_FG,
+        border_width=1,
+        border_color=SECTION_BORDER,
+    )
+    lf.columnconfigure(0, weight=1)
+    title_lbl = ctk.CTkLabel(lf, text=title, font=("Segoe UI", 16, "bold"))
+    title_lbl.grid(row=0, column=0, sticky="w", padx=12, pady=(8, 6))
     return lf
 
 
-def section_frame_with_tooltip(
-    parent: ttk.Widget, title: str, tooltip_text: str
-) -> ttk.Labelframe:
-    label_row = ttk.Frame(parent)
-    ttk.Label(label_row, text=title, font=("Segoe UI", 10, "bold")).pack(side="left")
-    lbl_help = ttk.Label(label_row, text="?", cursor="question_arrow")
-    lbl_help.pack(side="right", padx=(6, 0))
-    ToolTip(
-        lbl_help,
-        text=tooltip_text,
-        position="top right",
-        bootstyle=(SECONDARY, INVERSE),
+def section_frame_with_tooltip(parent: Any, title: str, tooltip_text: str) -> ctk.CTkFrame:
+    lf = ctk.CTkFrame(
+        parent,
+        corner_radius=8,
+        fg_color=SECTION_FG,
+        border_width=1,
+        border_color=SECTION_BORDER,
     )
-
-    lf = ttk.Labelframe(parent, padding=(12, 10, 12, 10), labelwidget=label_row)
-    lf.columnconfigure(1, weight=1)
+    lf.columnconfigure(0, weight=1)
+    label_row = ctk.CTkFrame(lf, fg_color="transparent")
+    label_row.grid(row=0, column=0, sticky="ew", padx=12, pady=(8, 6))
+    label_row.columnconfigure(0, weight=1)
+    ctk.CTkLabel(label_row, text=title, font=("Segoe UI", 16, "bold")).grid(row=0, column=0, sticky="w")
+    lbl_help = ctk.CTkLabel(label_row, text="?", width=20)
+    lbl_help.grid(row=0, column=1, sticky="e")
+    add_tooltip(lbl_help, tooltip_text)
     return lf
 
 
-def add_tooltip(widget: ttk.Widget, text: str) -> None:
-    ToolTip(
-        widget,
-        text=text,
-        position="top right",
-        bootstyle=(SECONDARY, INVERSE),
-    )
+def add_tooltip(widget: Any, text: str) -> None:
+    SimpleToolTip(widget, text)
 
 
-def add_label_with_tooltip(
-    parent: ttk.Widget, label_text: str, tooltip_text: str, row: int, pady: tuple[int, int] = (0, 0)
-) -> None:
-    label_frame = ttk.Frame(parent)
+def add_label_with_tooltip(parent: Any, label_text: str, tooltip_text: str, row: int, pady: tuple[int, int] = (0, 0)) -> None:
+    label_frame = ctk.CTkFrame(parent, fg_color="transparent")
     label_frame.grid(row=row, column=0, sticky="w", pady=pady, padx=(0, 10))
-    ttk.Label(label_frame, text=label_text).pack(side="left")
-    lbl_help = ttk.Label(label_frame, text="?", cursor="question_arrow")
+    ctk.CTkLabel(label_frame, text=label_text).pack(side="left")
+    lbl_help = ctk.CTkLabel(label_frame, text="?", width=20)
     lbl_help.pack(side="left", padx=(6, 0))
     add_tooltip(lbl_help, tooltip_text)
 
 
 def labelframe_with_tooltip_icon(
-    parent: ttk.Widget, title: str, tooltip_text: str, padding: tuple[int, int, int, int] = (10, 8, 10, 10)
-) -> ttk.Labelframe:
-    label_row = ttk.Frame(parent)
-    ttk.Label(label_row, text=title, font=("Segoe UI", 10, "bold")).pack(side="left")
-    lbl_help = ttk.Label(label_row, text="?", cursor="question_arrow")
-    lbl_help.pack(side="right", padx=(6, 0))
-    add_tooltip(lbl_help, tooltip_text)
-
-    lf = ttk.Labelframe(parent, padding=padding, labelwidget=label_row)
+    parent: Any, title: str, tooltip_text: str, padding: tuple[int, int, int, int] = (10, 8, 10, 10)
+) -> ctk.CTkFrame:
+    lf = ctk.CTkFrame(
+        parent,
+        corner_radius=8,
+        fg_color=SUBSECTION_FG,
+        border_width=1,
+        border_color=SUBSECTION_BORDER,
+    )
     lf.columnconfigure(0, weight=1)
+    label_row = ctk.CTkFrame(lf, fg_color="transparent")
+    label_row.grid(row=0, column=0, sticky="ew", padx=(padding[0], padding[2]), pady=(padding[1], 6))
+    label_row.columnconfigure(0, weight=1)
+    # Small inner padding prevents text clipping against rounded borders.
+    ctk.CTkLabel(label_row, text=title, font=("Segoe UI", 14, "bold"), anchor="w").grid(
+        row=0, column=0, sticky="ew", padx=(2, 0)
+    )
+    lbl_help = ctk.CTkLabel(label_row, text="?", width=20)
+    lbl_help.grid(row=0, column=1, sticky="e")
+    add_tooltip(lbl_help, tooltip_text)
     return lf
 
 
 def titled_section(
-    parent: ttk.Widget,
+    parent: Any,
     title: str,
     enabled_var: tk.BooleanVar,
     app: HyperTweakApp,
     after_toggle: Callable[[], None] | None = None,
     tooltip_text: str | None = None,
-) -> tuple[ttk.Labelframe, list[tuple[ttk.Widget, str]]]:
-    lf = ttk.Labelframe(parent, padding=(12, 10, 12, 10))
-    lf.grid_columnconfigure(1, weight=1)
+) -> tuple[ctk.CTkFrame, list[tuple[Any, str]]]:
+    lf = ctk.CTkFrame(
+        parent,
+        corner_radius=8,
+        fg_color=SUBSECTION_FG,
+        border_width=1,
+        border_color=SUBSECTION_BORDER,
+    )
+    lf.grid_columnconfigure(2, weight=1)
 
-    label = ttk.Frame(lf)
-    chk = ttk.Checkbutton(label, variable=enabled_var, text="")
+    label = ctk.CTkFrame(lf, fg_color="transparent")
+    label.grid(row=0, column=0, columnspan=3, sticky="ew", padx=12, pady=(8, 6))
+    chk = ctk.CTkCheckBox(label, variable=enabled_var, text="", width=24)
     chk.pack(side="left", padx=(0, 6))
-    ttk.Label(label, text=title, font=("Segoe UI", 10, "bold")).pack(side="left")
+    ctk.CTkLabel(label, text=title, font=("Segoe UI", 14, "bold")).pack(side="left")
     if tooltip_text:
-        lbl_help = ttk.Label(label, text="?", cursor="question_arrow")
+        lbl_help = ctk.CTkLabel(label, text="?", width=20)
         lbl_help.pack(side="right", padx=(6, 0))
         add_tooltip(lbl_help, tooltip_text)
-    lf.configure(labelwidget=label)
 
-    widgets: list[tuple[ttk.Widget, str]] = []
+    widgets: list[tuple[Any, str]] = []
 
     def on_toggle() -> None:
         set_section_enabled(widgets, bool(enabled_var.get()))
@@ -103,45 +178,44 @@ def titled_section(
     return lf, widgets
 
 
-def register_widget(
-    widgets: list[tuple[ttk.Widget, str]], widget: ttk.Widget, enabled_state: str
-) -> None:
+def register_widget(widgets: list[tuple[Any, str]], widget: Any, enabled_state: str) -> None:
     widgets.append((widget, enabled_state))
 
 
-def set_section_enabled(widgets: list[tuple[ttk.Widget, str]], enabled: bool) -> None:
-    for w, enabled_state in widgets:
+def set_section_enabled(widgets: list[tuple[Any, str]], enabled: bool) -> None:
+    for w, _enabled_state in widgets:
         try:
-            w.configure(state=(enabled_state if enabled else "disabled"))
+            w.configure(state=("normal" if enabled else "disabled"))
         except tk.TclError:
             pass
 
 
 def add_combo(
-    parent: ttk.Widget,
+    parent: Any,
     label: str,
     var: tk.Variable,
     values: list[Any],
     r: int,
     tooltip_text: str | None = None,
-) -> ttk.Combobox:
-    pady = (0 if r == 0 else 6, 0)
-    padx = (0, 10)
+) -> ctk.CTkOptionMenu:
+    # Keep a bottom inset so each section card has visible breathing room.
+    pady = (0 if r == 0 else 6, 8)
+    padx = (12, 10)
     if tooltip_text:
-        label_frame = ttk.Frame(parent)
-        label_frame.grid(row=r, column=0, sticky="w", pady=pady, padx=padx)
-        ttk.Label(label_frame, text=label).pack(side="left")
-        lbl_help = ttk.Label(label_frame, text="?", cursor="question_arrow")
+        label_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        label_frame.grid(row=r + 1, column=0, sticky="w", pady=pady, padx=padx)
+        ctk.CTkLabel(label_frame, text=label).pack(side="left")
+        lbl_help = ctk.CTkLabel(label_frame, text="?", width=20)
         lbl_help.pack(side="left", padx=(6, 0))
         add_tooltip(lbl_help, tooltip_text)
     else:
-        ttk.Label(parent, text=label).grid(
-            row=r, column=0, sticky="w", pady=pady, padx=padx
+        ctk.CTkLabel(parent, text=label).grid(
+            row=r + 1, column=0, sticky="w", pady=pady, padx=padx
         )
-    cb = ttk.Combobox(parent, textvariable=var, values=values, state="readonly", width=18)
-    cb.configure(bootstyle="secondary")
-    cb.grid(row=r, column=2, sticky="e", pady=(0 if r == 0 else 6, 0))
-    return cb
+
+    menu = ctk.CTkOptionMenu(parent, values=[str(v) for v in values], variable=var, width=140)
+    menu.grid(row=r + 1, column=2, sticky="e", pady=pady, padx=(0, 12))
+    return menu
 
 
 def apply_current_kv(app: HyperTweakApp, kv: str) -> None:
